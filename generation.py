@@ -3,6 +3,7 @@ import os
 import json
 import random
 from itertools import accumulate, product
+from PIL import Image, ImageDraw, ImageFont
 
 RSEED = 42
 PATH = './'
@@ -10,7 +11,7 @@ PATH = './'
 SIZE = 256
 THR = 25
 PARTS = 4
-MARGIN = 2
+MARGIN = 3
 
 
 # random.seed(RSEED)
@@ -72,15 +73,8 @@ def get_centers(n=SIZE, k=PARTS, l_bound=THR):
     delimiters = [0] + list(accumulate(spacers))[:-1] + [256]
     centers = [round(p + (f - p) / 2) for f, p in zip(delimiters[1:], delimiters[:-1])]
     half_sizes = [s / 2 for s in spacers]
-    print(f'We have {len(spacers)} intervals allocated as {delimiters},  their centers are {centers}')
+    print(f'We have {len(spacers)} intervals allocated as {delimiters}, their centers are {centers}')
     return centers, half_sizes
-
-
-# allocate Ox, Oy projections of possible rectangles
-x, y = get_centers(), get_centers()
-# generate product of all xs, ys (all possible combinations without replacement)
-centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
-print(f'{len(centers_xy)} rectangles (and their shapes) in total')
 
 # TODO 2: set up classes
 
@@ -100,13 +94,40 @@ class Rectangle(Figure):
         self.area = self.wh[0] * self.wh[1]
         # alternative minmax vertex representation
         self.ve_min = round(self.x - self.half_w), round(self.y - self.half_h)
-        self.ve_max = round(self.x + self.half_w), round(self.y + self.half_h)
+        self.ve_max = round(self.x + self.half_w)-1, round(self.y + self.half_h)-1
+        self.ve = self.ve_min, self.ve_max
 
     def __repr__(self):
+        image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
+        canvas = ImageDraw.Draw(image)
+        canvas.rectangle(self.ve, fill='black')
+        image.show()
         return f'Figure {self.shape} starts at {self.ve_min} with width {self.wh[0]}, height {self.wh[1]} and area {self.area}'
 
+    def __add__(self, other):
+        """combines adjacent rectangles in a row or column"""
+        dx, dy = (self.x - other.x), (self.y - other.y)
+        assert dx*dy == 0, 'not inline!'
+        # 0 - vertical border case or both vertical borders coincide
+        th = round(abs(self.x - other.x - self.half_w) - other.half_w)
+        # 0 - horizontal border case or both horizontal borders coincide
+        tw = round(abs(self.y - other.y - self.half_h) - other.half_h)
+        assert tw + th == 0, f'not adjacent!, {tw,th}'
+        # assert (self.half_w - other.half_w)*(self.half_h + other.half_h) == 0, f'not rectagonal'
+        center = round((self.x+other.x)/2), round((self.y+other.y)/2)
+        nhw, nhh = self.half_h, self.half_w
+        if (not th) and dx:
+            nhw = (self.half_w + other.half_w)
+        elif (not tw) and dy:
+            nhh = (self.half_h + other.half_h)
+        else:
+            print(f'wrong allocation,{tw, th})')
+        half_size = nhw, nhh
+        res = Rectangle(center, half_size)
+        return res
+
     def get_aoi(self, other):
-        """calculates (area of) intersection of two rectangls"""
+        """calculates (area of) intersection of two rectangles"""
         assert isinstance(other, Rectangle), f'object {other} is not an instance of {self.__class__.__name__}'
         # nearest max vertex - farthest min vertex
         dx = min(self.ve_max[0], other.ve_max[0]) - max(self.ve_min[0], other.ve_min[0])
@@ -118,7 +139,7 @@ class Rectangle(Figure):
 
     def get_iou(self, other):
         """produces IoU ratio (percentage)"""
-        assert isinstance(other, Rectangle), f'object {other} is not an instance of {self.__class__.__name__}'
+        assert isinstance(other, Rectangle), f'object {other} is not an instance of {self.shape}'
         aoi = self.get_aoi(other)
         if aoi:
             aou = self.area + other.area - aoi
@@ -128,12 +149,39 @@ class Rectangle(Figure):
         return iou
 
 
-# box = Rectangle((30, 20), (5, 7))
-# print(box)
-# box2 = Rectangle((30, 15), (3, 7))
+# box1 = Rectangle((100, 100), (10, 10))
+# print(box1)
+# # print(box.ve_min, box.ve_max)
+# box2 = Rectangle((70, 100), (20, 10))
 # print(box2)
-# print(box.get_iou(box2))
-# TODO 3: choose framework
+
+# # print(box1.get_iou(box2))
+# print(box1+box2)
+# # TODO 3: choose visual framework
+
+
+def draw_bounds(xy_list, wh_list):
+    image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
+    canvas = ImageDraw.Draw(image)
+    # random choice without repetitions
+    idx = list(range(len(xy_list)))
+    random.shuffle(idx)
+    # random quantity from 1..PARTS
+    q = random.randint(1, PARTS)
+    mask = idx[:q]
+    res = [(xy_list[i], wh_list[i]) for i in mask]
+    for b in res:
+        b_ = b[0], (map(lambda d: d - MARGIN, b[1]))
+        box = Rectangle(*b_)
+        canvas.rectangle(box.ve, fill='black')
+    image.show()
+
+# allocate Ox, Oy projections of possible rectangles
+x, y = get_centers(), get_centers()
+# generate product of all xs, ys (all possible combinations without replacement)
+centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
+print(f'{len(centers_xy)} rectangles (and their shapes) in total')
+draw_bounds(centers_xy, half_sizes_wh)
 # TODO 4: describe (id,type,x,y,w,h)
 # TODO 5: inscribe 4 shapes into those rectangles, fill-in with colours
 # TODO 6: serialize via json
