@@ -2,6 +2,7 @@ import numpy
 import os
 import json
 import random
+import statistics
 from itertools import accumulate, product
 from PIL import Image, ImageDraw, ImageFont
 
@@ -10,7 +11,7 @@ PATH = './'
 
 SIZE = 256
 THR = 25
-PARTS = 4
+PARTS = 5
 MARGIN = 3
 
 
@@ -84,6 +85,40 @@ class Figure:
         self.shape = None
         self.x, self.y = center
         self.half_w, self.half_h = half_size
+        self.bbox = None
+
+
+class RandTriangle(Figure):
+    def __init__(self, center, half_size, var_threshold=0.3):
+        super().__init__(center, half_size)
+        self.shape = self.__class__.__name__
+        self.bbox_ = Rectangle(center, half_size)
+        shift_x = list(range(-half_size[0]+MARGIN, half_size[0]-MARGIN))
+        shift_y = list(range(-half_size[1]+MARGIN, half_size[1]-MARGIN))
+        random.shuffle(shift_x)
+        random.shuffle(shift_y)
+        # prevent slim triangles as it's hard to distinguish those
+        var_x, var_y = 0, 0
+        while var_x * var_y < var_threshold*(half_size[0]*half_size[1]):
+            random.shuffle(shift_x)
+            random.shuffle(shift_y)
+            var_x, var_y = statistics.stdev(shift_x[:3]), statistics.stdev(shift_y[:3])
+        x, y = [self.x + sx for sx in shift_x[:3]], [self.y + sy for sy in shift_y[:3]]
+        self.vertices = list(zip(x, y))
+        ve_min = min(x), min(y)
+        ve_max = max(x), max(y)
+        bc = round((ve_max[0]+ve_min[0])/2), round((ve_max[1]+ve_min[1])/2)
+        hs = list((d[1]-d[0]+MARGIN)/2 + 1 for d in zip(ve_min, ve_max))
+        self.bbox = Rectangle(bc, hs)
+
+    def __repr__(self):
+        image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
+        canvas = ImageDraw.Draw(image)
+        canvas.polygon(self.vertices, fill='black')
+        canvas.rectangle(self.bbox_.ve, outline='green')
+        canvas.rectangle(self.bbox.ve, outline='red')
+        image.show()
+        return f'{self.shape} bounded by {self.bbox.ve}'
 
 
 class Rectangle(Figure):
@@ -102,7 +137,7 @@ class Rectangle(Figure):
         canvas = ImageDraw.Draw(image)
         canvas.rectangle(self.ve, fill='black')
         image.show()
-        return f'Figure {self.shape} starts at {self.ve_min} with width {self.wh[0]}, height {self.wh[1]} and area {self.area}'
+        return f'{self.shape} that starts at {self.ve_min} with width {self.wh[0]}, height {self.wh[1]} and area {self.area}'
 
     def __add__(self, other):
         """combines adjacent rectangles in a row or column"""
@@ -155,33 +190,38 @@ class Rectangle(Figure):
 # box2 = Rectangle((70, 100), (20, 10))
 # print(box2)
 
+print(RandTriangle((100, 100), (50, 50)))
 # # print(box1.get_iou(box2))
 # print(box1+box2)
 # # TODO 3: choose visual framework
 
-
-def draw_bounds(xy_list, wh_list):
-    image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
-    canvas = ImageDraw.Draw(image)
+def rc_parts(xy_list, wh_list):
+    """choose up to 5 different boxes"""
     # random choice without repetitions
     idx = list(range(len(xy_list)))
     random.shuffle(idx)
     # random quantity from 1..PARTS
     q = random.randint(1, PARTS)
-    mask = idx[:q]
-    res = [(xy_list[i], wh_list[i]) for i in mask]
+    return [(xy_list[i], wh_list[i]) for i in idx[:q]]
+
+
+def draw_bounds(res):
+    image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
+    canvas = ImageDraw.Draw(image)
     for b in res:
         b_ = b[0], (map(lambda d: d - MARGIN, b[1]))
         box = Rectangle(*b_)
         canvas.rectangle(box.ve, fill='black')
     image.show()
 
-# allocate Ox, Oy projections of possible rectangles
-x, y = get_centers(), get_centers()
-# generate product of all xs, ys (all possible combinations without replacement)
-centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
-print(f'{len(centers_xy)} rectangles (and their shapes) in total')
-draw_bounds(centers_xy, half_sizes_wh)
+
+# # allocate Ox, Oy projections of possible rectangles
+# x, y = get_centers(), get_centers()
+# # generate product of all xs, ys (all possible combinations without replacement)
+# centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
+# choice = rc_parts(centers_xy, half_sizes_wh)
+# print(f'{len(centers_xy)} rectangles (and their shapes) in total, chosen {len(choice)}')
+# draw_bounds(choice)
 # TODO 4: describe (id,type,x,y,w,h)
 # TODO 5: inscribe 4 shapes into those rectangles, fill-in with colours
 # TODO 6: serialize via json
