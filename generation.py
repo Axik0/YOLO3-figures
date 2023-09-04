@@ -4,6 +4,7 @@ import json
 
 import random
 import statistics
+from math import pi, sin, cos
 from itertools import accumulate, product
 from PIL import Image, ImageDraw
 
@@ -239,9 +240,60 @@ class Rhombus(Figure):
         image.show()
         return f'{self.shape} with vertices {self.ve} bounded by {self.bbox.ve}'
 
+class Hexagon(Figure):
+    def __init__(self, center, half_size, s=0.7):
+        super().__init__(center, half_size)
+        self.shape = self.__class__.__name__
+        self.bbox = Rectangle(center, half_size)
+        self.max_radius = min(half_size)
+        self.radius = s * self.max_radius
+        # crop to square w/ margin
+        self.bbox_ = Rectangle(center, (self.radius + MARGIN, self.radius + MARGIN))
+
+        def split(n, k):
+            """get k sequential! parts starting from 0"""
+            assert n % k == 0, f'{n} is not divisible by {k}, stop'
+            return list(range(0, n, n//k))
+
+        self.angles_d = split(360, 6)
+        self.angles_r = list(map(lambda a: a*pi/180, self.angles_d))
+        self.ve = [(self.x + self.radius * cos(a), self.y + self.radius * sin(a)) for a in self.angles_r]
+
+    def __repr__(self):
+        image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
+        canvas = ImageDraw.Draw(image)
+        canvas.polygon(self.ve, fill='black')
+        canvas.rectangle(self.bbox.ve, outline='green')
+        canvas.rectangle(self.bbox_.ve, outline='red')
+        image.show()
+        return f'{self.shape} with angles {self.angles_d} and radius {self.radius} bounded by {self.bbox.ve}'
+
+
+class Circle(Figure):
+    def __init__(self, center, half_size, s=0.7):
+        super().__init__(center, half_size)
+        self.shape = self.__class__.__name__
+        self.bbox = Rectangle(center, half_size)
+        self.max_radius = min(half_size)
+        self.radius = s * self.max_radius
+        # crop to square w/ margin
+        self.bbox_ = Rectangle(center, (self.radius + MARGIN, self.radius + MARGIN))
+        self.ve = [(self.x - self.radius, self.y - self.radius), (self.x + self.radius, self.y + self.radius)]
+
+    def __repr__(self):
+        image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
+        canvas = ImageDraw.Draw(image)
+        canvas.ellipse(self.ve, fill='black')
+        canvas.rectangle(self.bbox.ve, outline='green')
+        canvas.rectangle(self.bbox_.ve, outline='red')
+        image.show()
+        return f'{self.shape} with radius {self.radius} bounded by {self.bbox.ve}'
+
+
 # print(Triangle((100, 100), (50, 50)))
 # print(Rhombus((100, 100), (50, 50)))
-
+# print(Hexagon((100, 100), (50, 50)))
+# print(Circle((100, 100), (50, 50)))
 # TODO 3: choose visual framework
 
 def rc_parts(xy_list, wh_list):
