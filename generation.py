@@ -1,10 +1,11 @@
 import numpy
 import os
 import json
+
 import random
 import statistics
 from itertools import accumulate, product
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 RSEED = 42
 PATH = './'
@@ -88,39 +89,6 @@ class Figure:
         self.bbox = None
 
 
-class RandTriangle(Figure):
-    def __init__(self, center, half_size, var_threshold=0.3):
-        super().__init__(center, half_size)
-        self.shape = self.__class__.__name__
-        self.bbox_ = Rectangle(center, half_size)
-        shift_x = list(range(-half_size[0]+MARGIN, half_size[0]-MARGIN))
-        shift_y = list(range(-half_size[1]+MARGIN, half_size[1]-MARGIN))
-        random.shuffle(shift_x)
-        random.shuffle(shift_y)
-        # prevent slim triangles as it's hard to distinguish those
-        var_x, var_y = 0, 0
-        while var_x * var_y < var_threshold*(half_size[0]*half_size[1]):
-            random.shuffle(shift_x)
-            random.shuffle(shift_y)
-            var_x, var_y = statistics.stdev(shift_x[:3]), statistics.stdev(shift_y[:3])
-        x, y = [self.x + sx for sx in shift_x[:3]], [self.y + sy for sy in shift_y[:3]]
-        self.vertices = list(zip(x, y))
-        ve_min = min(x), min(y)
-        ve_max = max(x), max(y)
-        bc = round((ve_max[0]+ve_min[0])/2), round((ve_max[1]+ve_min[1])/2)
-        hs = list((d[1]-d[0]+MARGIN)/2 + 1 for d in zip(ve_min, ve_max))
-        self.bbox = Rectangle(bc, hs)
-
-    def __repr__(self):
-        image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
-        canvas = ImageDraw.Draw(image)
-        canvas.polygon(self.vertices, fill='black')
-        canvas.rectangle(self.bbox_.ve, outline='green')
-        canvas.rectangle(self.bbox.ve, outline='red')
-        image.show()
-        return f'{self.shape} bounded by {self.bbox.ve}'
-
-
 class Rectangle(Figure):
     def __init__(self, center, half_size):
         super().__init__(center, half_size)
@@ -190,10 +158,91 @@ class Rectangle(Figure):
 # box2 = Rectangle((70, 100), (20, 10))
 # print(box2)
 
-print(RandTriangle((100, 100), (50, 50)))
-# # print(box1.get_iou(box2))
+# print(box1.get_iou(box2))
 # print(box1+box2)
-# # TODO 3: choose visual framework
+
+class Triangle(Figure):
+    def __init__(self, center, half_size, var_threshold=0.3):
+        super().__init__(center, half_size)
+        self.shape = self.__class__.__name__
+        self.bbox_ = Rectangle(center, half_size)
+        shift_x = list(range(-half_size[0]+MARGIN, half_size[0]-MARGIN))
+        shift_y = list(range(-half_size[1]+MARGIN, half_size[1]-MARGIN))
+        random.shuffle(shift_x)
+        random.shuffle(shift_y)
+        # prevent slim triangles as it's hard to distinguish those
+        var_x, var_y = 0, 0
+        while var_x * var_y < var_threshold*(half_size[0]*half_size[1]):
+            random.shuffle(shift_x)
+            random.shuffle(shift_y)
+            var_x, var_y = statistics.stdev(shift_x[:3]), statistics.stdev(shift_y[:3])
+        x, y = [self.x + sx for sx in shift_x[:3]], [self.y + sy for sy in shift_y[:3]]
+        self.ve = list(zip(x, y))
+        ve_min = min(x), min(y)
+        ve_max = max(x), max(y)
+        bc = round((ve_max[0]+ve_min[0])/2), round((ve_max[1]+ve_min[1])/2)
+        hs = list((d[1]-d[0]+MARGIN)/2 + 1 for d in zip(ve_min, ve_max))
+        self.bbox = Rectangle(bc, hs)
+
+    def __repr__(self):
+        image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
+        canvas = ImageDraw.Draw(image)
+        canvas.polygon(self.ve, fill='black')
+        canvas.rectangle(self.bbox_.ve, outline='green')
+        canvas.rectangle(self.bbox.ve, outline='red')
+        image.show()
+        return f'{self.shape} bounded by {self.bbox.ve}'
+
+
+class Rhombus(Figure):
+    def __init__(self, center, half_size, s=0.5):
+        """larger s -- thinner rhombus"""
+        super().__init__(center, half_size)
+        self.shape = self.__class__.__name__
+        self.bbox = Rectangle(center, half_size)
+        # add some margin
+        self.bbox_ = Rectangle(center, (hs - MARGIN for hs in half_size))
+        # we assume that we use ve_min, ve_max points as a frame
+        self.const = self.bbox_.half_h + self.bbox_.half_w
+        # diagonal min-max -dy*x+dx*y + x1y2-x2y1=0 w/ normal (-dy,dx),
+        dx = self.bbox_.ve_max[0] - self.bbox_.ve_min[0]
+        dy = self.bbox_.ve_max[1] - self.bbox_.ve_min[1]
+        # let's find an orthogonal line, i.e. w/ normal (dx,dy) and ic
+        line = (dx, dy, -(dx * self.x + dy * self.y))
+
+        def cross(nni, xs):
+            # n1*x+n2*y+intercept=0 for all xs --> ys
+            assert nni[1] != 0, 'wrong line, dna zerodiv'
+            return list(map(lambda x: -round((nni[0] * x + nni[2])/nni[1]), xs))
+        lim_xs = ((self.bbox_.ve_min[0] + MARGIN//s), (self.bbox_.ve_max[0] - MARGIN//s))
+        # let's randomly generate max of side xs
+        side_x = random.randint(self.bbox_.x+MARGIN//s, int(lim_xs[1]))
+        # invert side_x (relative to center)
+        side_xi = self.x - (side_x - self.x)
+        side_xs = (side_xi, side_x)
+        # then corresponding ys
+        side_ys = cross(line, side_xs)
+        self.side_pts = [p for p in zip(side_xs, side_ys)]
+        self.far_pts = [self.bbox_.ve_min, self.bbox_.ve_max]
+        # we have to sort this array to fill in colours properly
+        # prevent connections between opposite vertices (diagonal) => interleaving arrays
+        self.ve = [v for pair in zip(self.side_pts,self.far_pts) for v in pair]
+
+    def __repr__(self):
+        image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
+        canvas = ImageDraw.Draw(image)
+        canvas.polygon(self.ve, fill='black')
+        canvas.point(self.side_pts[0], 'red')
+        canvas.point(self.side_pts[1], 'red')
+        canvas.rectangle(self.bbox.ve, outline='green')
+        canvas.rectangle(self.bbox_.ve, outline='red')
+        image.show()
+        return f'{self.shape} with vertices {self.ve} bounded by {self.bbox.ve}'
+
+# print(Triangle((100, 100), (50, 50)))
+# print(Rhombus((100, 100), (50, 50)))
+
+# TODO 3: choose visual framework
 
 def rc_parts(xy_list, wh_list):
     """choose up to 5 different boxes"""
@@ -226,3 +275,4 @@ def draw_bounds(res):
 # TODO 5: inscribe 4 shapes into those rectangles, fill-in with colours
 # TODO 6: serialize via json
 # TODO 7: create dataset (png image <--> json description)
+
