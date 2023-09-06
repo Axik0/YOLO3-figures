@@ -1,6 +1,7 @@
 import numpy
 import os
 import json
+import inspect
 
 import random
 import statistics
@@ -209,7 +210,7 @@ class Triangle(Figure):
 
 
 class Rhombus(Figure):
-    def __init__(self, center, half_size, s=0.5):
+    def __init__(self, center, half_size, s=0.9):
         """larger s -- thinner rhombus"""
         super().__init__(center, half_size)
         self.shape = self.__class__.__name__
@@ -230,10 +231,8 @@ class Rhombus(Figure):
             assert nni[1] != 0, 'wrong line, dna zerodiv'
             return list(map(lambda x: -round((nni[0] * x + nni[2]) / nni[1]), xs))
 
-        lim_xs = ((self.bbox.ve_min[0] + MARGIN // s), (self.bbox.ve_max[0] - MARGIN // s))
-        # let's randomly generate max of side xs
-        # print(self.bbox.x + MARGIN // s, self.bbox.ve_max[0] - MARGIN)
-        side_x = random.randint(self.bbox.x + MARGIN // s, self.bbox.ve_max[0] - MARGIN)
+        x_lim = self.bbox.x + MARGIN, round(self.bbox.ve_max[0]) - MARGIN
+        side_x = random.randint(x_lim[0] + round(s*(x_lim[1]-x_lim[0]-2*MARGIN))-MARGIN, x_lim[1])
         # invert side_x (relative to center)
         side_xi = self.x - (side_x - self.x)
         side_xs = (side_xi, side_x)
@@ -404,13 +403,20 @@ def draw_shapes(bboxes_list):
     for b in bboxes_list:
         # random.seed(RSEED)
         sh_id = random.randint(1, 5)
-        class_ch = id_to_class[sh_id-1]
+        # random colour (of 140)
         colour_ch = palette[sh_id]
-        print(class_ch.__dict__.keys())
+        # random shape (of 5)
+        class_ch = id_to_class[sh_id-1]
+        # explore more options to randomize if possible (before instantiation)
+        params = set(inspect.signature(class_ch).parameters)
+        extra_params = params - {'center', 'half_size'}
+        if len(extra_params) > 1:
+            print(extra_params)
         # set up an instance
         obj = class_ch(*b)
         obj.draw(canvas, colour_ch)
         figures.append(obj)
+    print(f'Image contains: {len(figures)} figures such as {[f.__class__.__name__ for f in figures]}')
     image.show()
 
 
