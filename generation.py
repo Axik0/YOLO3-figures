@@ -11,10 +11,24 @@ from PIL import Image, ImageDraw, ImageColor
 
 RSEED = 42
 PATH = './'
+FNAME = 'pics'
+
+picture_path = os.path.join(PATH, FNAME)
+json_path = os.path.join(PATH,'data.json')
+
+try:
+    os.mkdir(picture_path)
+except FileExistsError:
+    pass
+
+def get_data(json_object_path):
+    with open(json_object_path, 'r') as f:
+        res = json.load(f)
+    return res
 
 SIZE = 256
 # 25++ because inscribed object might be smaller
-THR = 25 + 15
+THR = 25 + 20
 PARTS = 5
 MARGIN = 3
 
@@ -72,16 +86,26 @@ def rand_split(n, k: int, l_bound=0):
 # except AssertionError:
 #     print('function behaves wrong')
 
-def get_centers(n=SIZE, k=PARTS - 2, l_bound=THR):
+def get_centers(n=SIZE, k=PARTS - 2, l_bound=THR, mute=False):
     """convenient function that transforms exact parameters from just spacers"""
     assert k > 2, 'wrong PARTS quantity'
     spacers = rand_split(n, k, l_bound)
     delimiters = [0] + list(accumulate(spacers))[:-1] + [256]
     centers = [round(p + (f - p) / 2) for f, p in zip(delimiters[1:], delimiters[:-1])]
     half_sizes = [s / 2 for s in spacers]
-    print(f'We have {len(spacers)} intervals allocated as {delimiters}, their centers are {centers}')
+    if not mute:
+        print(f'We have {len(spacers)} intervals allocated as {delimiters}, their centers are {centers}')
     return centers, half_sizes
 
+
+def rc_parts(xy_list, wh_list):
+    """choose up to 5 different boxes"""
+    # random choice without repetitions
+    idx = list(range(len(xy_list)))
+    random.shuffle(idx)
+    # random quantity from 1..PARTS
+    q = random.randint(1, PARTS)
+    return [(xy_list[i], wh_list[i]) for i in idx[:q]]
 
 # TODO 2: set up classes
 
@@ -180,8 +204,8 @@ class Triangle(Figure):
         self.shape = self.__class__.__name__
         half_size = list(map(round, half_size))
         self.bbox_ = BBox(center, half_size)
-        shift_x = list(range(-half_size[0] + MARGIN, half_size[0] - MARGIN))
-        shift_y = list(range(-half_size[1] + MARGIN, half_size[1] - MARGIN))
+        shift_x = list(range(-half_size[0] + 2*MARGIN, half_size[0] - 2*MARGIN))
+        shift_y = list(range(-half_size[1] + 2*MARGIN, half_size[1] - 2*MARGIN))
         random.shuffle(shift_x)
         random.shuffle(shift_y)
         # prevent slim triangles as it's hard to distinguish those
@@ -337,7 +361,7 @@ class Rectangle(Polygon):
         and set up with just 2 angles(start, add up to 90deg to get 2nd vertex, then reflect to get the remaining two)
         parameter squareness=0...1 yields a square when 1, supposed to be random"""
         self.shape = self.__class__.__name__
-        self.sqrnss = random.uniform(0.3, max_sqrnss)
+        self.sqrnss = random.uniform(0.5, max_sqrnss)
         self.angular_delta = self.sqrnss * 90
 
         # set up vertices counterclockwise, convert to radians, overwrite default polygon attributes (Hexagon
@@ -360,16 +384,6 @@ class Rectangle(Polygon):
 id_to_class = {0: Circle, 1: Rhombus, 2: Rectangle, 3: Triangle, 4: Polygon}
 
 
-def rc_parts(xy_list, wh_list):
-    """choose up to 5 different boxes"""
-    # random choice without repetitions
-    idx = list(range(len(xy_list)))
-    random.shuffle(idx)
-    # random quantity from 1..PARTS
-    q = random.randint(1, PARTS)
-    return [(xy_list[i], wh_list[i]) for i in idx[:q]]
-
-
 def draw_bounds(res):
     image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
     canvas = ImageDraw.Draw(image)
@@ -381,20 +395,7 @@ def draw_bounds(res):
     image.show()
 
 
-# allocate Ox, Oy projections of possible rectangles
-x, y = get_centers(), get_centers()
-# generate product of all xs, ys (all possible combinations without replacement)
-centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
-# draw_bounds(zip(centers_xy, half_sizes_wh))'
-
-choice = rc_parts(centers_xy, half_sizes_wh)
-print(f'{len(centers_xy)} rectangles (and their shapes) in total, chosen {len(choice)}')
-
-
-# get allowed rectangles
-# draw_bounds(choice)
-
-def draw_shapes(bboxes_list):
+def draw_shapes(bboxes_list, mute=False):
     # random colour palette (6) from a default cmap
     colours_dict = ImageColor.colormap
     c_names = list(colours_dict.keys())
@@ -418,25 +419,74 @@ def draw_shapes(bboxes_list):
         if len(extra_params) > 1:
             # otherwise they're Rhombus and Triangle, already quite random and depend on just the bbox
             # choose 'size'
-            ratio_ch = random.uniform(0.85, 1)
+            ratio_ch = random.uniform(0.9, 1)
             # rotate to an angle
-            angle_ch = random.randrange(0, 90)
+            angle_ch = random.randrange(5, 90)
             obj = class_ch(*b, ratio=ratio_ch, angle=angle_ch)
 
         # set up an instance
         obj = class_ch(*b)
         obj.draw(canvas, colour_ch)
-        figures.append(obj)
-        sizes.append((round(min(obj.bbox.wh)), round(max(obj.bbox.wh))))
-    # check sizes
-    for i, s in enumerate(sizes):
-        if s[0] < 25 or s[1] > 150:
-            raise ValueError(f'Figure {figures[i]} exceeds (25...150) limits {s}')
-    print(f'Image contains: {len(figures)} figure(s): {[f.__class__.__name__ for f in figures]}')
-    image.show()
+
+        size = (round(min(obj.bbox.wh)), round(max(obj.bbox.wh)))
+        sizes.append(size)
+        # check sizes
+        if size[0] < 25 or size[1] > 150:
+            raise ValueError(f'Figure {obj} exceeds (25...150) limits {size}')
+        else:
+            figures.append(obj)
+    if not mute:
+        print(f'Image contains: {len(figures)} figure(s): {[f.__class__.__name__ for f in figures]}')
+    return image, figures
 
 
-draw_shapes(choice)
+# # allocate Ox, Oy projections of possible rectangles
+# x, y = get_centers(), get_centers()
+# # generate product of all xs, ys (all possible combinations without replacement)
+# centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
+# # draw_bounds(zip(centers_xy, half_sizes_wh))'
+#
+# choice = rc_parts(centers_xy, half_sizes_wh)
+# print(f'{len(centers_xy)} rectangles (and their shapes) in total, chosen {len(choice)}')
+
+
+# get allowed rectangles
+# draw_bounds(choice)
+# result = draw_shapes(choice)
+# result.show()
+
+def generate(n, img_path, data_path):
+    data = {}
+    for i in range(n):
+        # allocate Ox, Oy projections of possible rectangles
+        x, y = get_centers(mute=True), get_centers(mute=True)
+        # generate product of all xs, ys (all possible combinations without replacement)
+        centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
+        choice = rc_parts(centers_xy, half_sizes_wh)
+        # print(f'{len(centers_xy)} rectangles (and their shapes) in total, chosen {len(choice)}')
+        try:
+            result = draw_shapes(choice, mute=True)
+        except ValueError:
+            print('one missed, retried(once)')
+            result = draw_shapes(choice)
+        # result[0].show()
+        # store picture
+        name = f'{i}.png'
+        result[0].save(fp=os.path.join(img_path, name))
+        # create description {0:[[fig1_type, bbox1_start, bbox1_wh],[fig1_type, bbox1_start, bbox1_wh],...], 1:...}
+        description = [(f.shape, f.bbox.ve_min, f.bbox.wh) for f in result[1]]
+        data[i] = description
+        if i % 200 == 0:
+            print(i)
+    print(f'{len(data)} images have been generated successfully')
+    # store its description
+    with open(data_path, 'w') as f:
+        json.dump(data, f)
+    return data
+
+generate(n=1000, img_path=picture_path, data_path=json_path)
+
+
 
 # TODO 4: describe (id,type,x,y,w,h)
 # TODO 5: inscribe 4 shapes into those rectangles, fill-in with colours
