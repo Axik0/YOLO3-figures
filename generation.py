@@ -247,8 +247,8 @@ class Triangle(Figure):
         image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
         canvas = ImageDraw.Draw(image)
         canvas.polygon(self.ve, fill='black')
-        canvas.rectangle(self.bbox_.ve, outline='green')
-        canvas.rectangle(self.bbox.ve, outline='red')
+        canvas.rectangle(self.bbox_.ve, outline='red')
+        canvas.rectangle(self.bbox.ve, outline='green')
         image.show()
         return f'{self.shape} bounded by {self.bbox.ve}'
 
@@ -258,15 +258,15 @@ class Rhombus(Figure):
         """larger s -- thinner rhombus"""
         super().__init__(center, half_size)
         self.shape = self.__class__.__name__
-        self.bbox = BBox(center, half_size)
+        self.bbox_ = BBox(center, half_size)
         # add some margin
-        # self.bbox_ = BBox(center, (hs - MARGIN for hs in half_size))
+        # self.bbox = BBox(center, (hs - MARGIN for hs in half_size))
         self.max_diag = (min(half_size) - MARGIN) / sqrt(2)
-        self.bbox_ = BBox(center, (self.max_diag, self.max_diag))
+        self.bbox = BBox(center, (self.max_diag, self.max_diag))
         # we assume that we use ve_min, ve_max points as a frame
         # diagonal min-max -dy*x+dx*y + x1y2-x2y1=0 w/ normal (-dy,dx),
-        dx = self.bbox_.ve_max[0] - self.bbox_.ve_min[0]
-        dy = self.bbox_.ve_max[1] - self.bbox_.ve_min[1]
+        dx = self.bbox.ve_max[0] - self.bbox.ve_min[0]
+        dy = self.bbox.ve_max[1] - self.bbox.ve_min[1]
         # let's find an orthogonal line, i.e. w/ normal (dx,dy) and ic
         line = (dx, dy, -(dx * self.x + dy * self.y))
 
@@ -275,17 +275,17 @@ class Rhombus(Figure):
             assert nni[1] != 0, 'wrong line, dna zerodiv'
             return list(map(lambda x: -round((nni[0] * x + nni[2]) / nni[1]), xs))
 
-        lim_xs = ((self.bbox_.ve_min[0] + MARGIN // s), (self.bbox_.ve_max[0] - MARGIN // s))
+        lim_xs = ((self.bbox.ve_min[0] + MARGIN // s), (self.bbox.ve_max[0] - MARGIN // s))
         # let's randomly generate max of side xs
-        print(self.bbox_.x + MARGIN // s, self.bbox_.ve_max[0] - MARGIN)
-        side_x = random.randint(self.bbox_.x + MARGIN // s, self.bbox_.ve_max[0] - MARGIN)
+        # print(self.bbox.x + MARGIN // s, self.bbox.ve_max[0] - MARGIN)
+        side_x = random.randint(self.bbox.x + MARGIN // s, self.bbox.ve_max[0] - MARGIN)
         # invert side_x (relative to center)
         side_xi = self.x - (side_x - self.x)
         side_xs = (side_xi, side_x)
         # then corresponding ys
         side_ys = cross(line, side_xs)
         self.side_pts = [p for p in zip(side_xs, side_ys)]
-        self.far_pts = [self.bbox_.ve_min, self.bbox_.ve_max]
+        self.far_pts = [self.bbox.ve_min, self.bbox.ve_max]
         # we have to sort this array to fill in colours properly
         # prevent connections between opposite vertices (diagonal) => interleaving arrays
         self.ve = [v for pair in zip(self.side_pts, self.far_pts) for v in pair]
@@ -364,7 +364,7 @@ class Circle(Figure):
 
 
 # print(Triangle((100, 100), (50, 50)))
-# print(Rhombus((100, 100), (20, 70)))
+print(Rhombus((100, 100), (20, 70)))
 # print(Polygon((100, 100), (50, 50), ratio=0.7, nv=4, angle=20))
 # print(Circle((100, 100), (30, 50), ratio=0.7))
 # TODO 3: choose visual framework
