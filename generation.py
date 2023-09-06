@@ -457,6 +457,7 @@ def draw_shapes(bboxes_list, mute=False):
 
 def generate(n, img_path, data_path):
     data = {}
+    img_to_show = []
     for i in range(n):
         # allocate Ox, Oy projections of possible rectangles
         x, y = get_centers(mute=True), get_centers(mute=True)
@@ -470,25 +471,20 @@ def generate(n, img_path, data_path):
             print('one missed, retried(once)')
             result = draw_shapes(choice)
         # result[0].show()
+        img_to_show.append(result[0])
         # store picture
-        name = f'{i}.png'
-        result[0].save(fp=os.path.join(img_path, name))
+        result[0].save(fp=os.path.join(img_path, f'{i}.png'))
         # create description {0:[[fig1_type, bbox1_start, bbox1_wh],[fig1_type, bbox1_start, bbox1_wh],...], 1:...}
-        description = [(f.shape, f.bbox.ve_min, f.bbox.wh) for f in result[1]]
+        description = list((f.shape, f.bbox.ve_min, f.bbox.wh) for f in result[1])
         data[i] = description
         if i % 200 == 0:
             print(i)
-    print(f'{len(data)} images have been generated successfully')
+    print(f'{len(data)} images have been created successfully')
     # store its description
     with open(data_path, 'w') as f:
         json.dump(data, f)
-    return data
-
-generate(n=1000, img_path=picture_path, data_path=json_path)
+    return img_to_show
 
 
-
-# TODO 4: describe (id,type,x,y,w,h)
-# TODO 5: inscribe 4 shapes into those rectangles, fill-in with colours
-# TODO 6: serialize via json
-# TODO 7: create dataset (png image <--> json description)
+d = generate(n=100, img_path=picture_path, data_path=json_path)
+d[2].show()
