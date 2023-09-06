@@ -6,7 +6,7 @@ import random
 import statistics
 from math import pi, sin, cos, sqrt, atan
 from itertools import accumulate, product
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageColor
 
 RSEED = 42
 PATH = './'
@@ -171,59 +171,11 @@ class BBox(Figure):
 # print(box1.get_iou(box2))
 # print(box1+box2)
 
-
-class Rectangle(Figure):
-    def __init__(self, center, half_size, rotation_angle_r=0):
-        super().__init__(center, half_size)
-        self.shape = self.__class__.__name__
-        self.rotation = rotation_angle_r
-        # available space
-        self.bbox = BBox(center, half_size)
-        # crop to square w/ margin
-        self.bbox_ = BBox(center, (min(half_size), min(half_size)))
-        self.wh = self.bbox_.wh
-        # max possible inscribed circle and implying rotation
-        self.max_radius = (min(half_size) - MARGIN) / sqrt(2)
-        # global coordinates of farthest vertices of an inner square (to be shown)
-        self.ve_min = self.x - self.max_radius, self.y - self.max_radius
-        self.ve_max = self.x + self.max_radius, self.y + self.max_radius
-        self.ve = self.ve_min, self.ve_max
-        self.ve_loc = ((-self.max_radius, -self.max_radius), (self.max_radius, self.max_radius))
-        # polar form of local coordinates w/corrections for angles more than [-pi, pi]
-        self.ve_loc_polar = list((sqrt(x**2 + y**2), pi+atan(y/x)) if y < 0 else (sqrt(x**2 + y**2), atan(y/x)) for (x, y) in self.ve_loc)
-
-    def rotate(self, angle_r):
-        self.ve_loc_polar = list((r, phi + angle_r) for r, phi in self.ve_loc_polar)
-        # overwrite vertices
-        self.ve = sorted(list((self.x + r*cos(phi), self.y + r*sin(phi)) for r, phi in self.ve_loc_polar), key=lambda t:t[0])
-
-    def __repr__(self):
-        image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
-        canvas = ImageDraw.Draw(image)
-        canvas.rectangle(self.ve, fill='black')
-        print(self.ve)
-        self.rotate(pi/3)
-        print(self.ve)
-        # canvas.rectangle(self.ve, fill='yellow')
-        canvas.rectangle(self.bbox.ve, outline='green')
-        canvas.rectangle(self.bbox_.ve, outline='red')
-        canvas.ellipse(self.bbox_.ve, outline='red')
-        canvas.point((self.x, self.y), 'red')
-        canvas.point(self.ve[0], 'red')
-        canvas.point(self.ve[1], 'red')
-        # canvas.point(self.ve[0], 'blue')
-        # canvas.point(self.ve[1], 'blue')
-        image.show()
-        return f'{self.shape} with vertices {self.ve} bounded by {self.bbox_.ve}'
-
-# w = Rectangle((100, 100), (40, 70))
-# w.rotate(pi/5)
-# print(w)
-
 class Triangle(Figure):
     def __init__(self, center, half_size, var_threshold=0.3):
         super().__init__(center, half_size)
         self.shape = self.__class__.__name__
+        half_size = list(map(round, half_size))
         self.bbox_ = BBox(center, half_size)
         shift_x = list(range(-half_size[0] + MARGIN, half_size[0] - MARGIN))
         shift_y = list(range(-half_size[1] + MARGIN, half_size[1] - MARGIN))
@@ -251,6 +203,9 @@ class Triangle(Figure):
         canvas.rectangle(self.bbox.ve, outline='green')
         image.show()
         return f'{self.shape} bounded by {self.bbox.ve}'
+
+    def draw(self, canvas, colour):
+        return canvas.polygon(self.ve, fill=colour)
 
 
 class Rhombus(Figure):
@@ -301,6 +256,9 @@ class Rhombus(Figure):
         image.show()
         return f'{self.shape} with vertices {self.ve} bounded by {self.bbox.ve}'
 
+    def draw(self, canvas, colour):
+        return canvas.polygon(self.ve, fill=colour)
+
 
 class Polygon(Figure):
     def __init__(self, center, half_size, ratio=0.7, nv=6, angle=0):
@@ -328,7 +286,8 @@ class Polygon(Figure):
         self.angles_d = split(360, nv, angle)
         # convert to radians
         self.angles_r = list(map(lambda a: a * pi / 180, self.angles_d))
-        self.ve = [(self.x + self.radius * cos(a), self.y + self.radius * sin(a)) for a in self.angles_r]
+        # embed -a to make this comfy visually, PIL uses different coordinate system => clockwise angle count
+        self.ve = [(self.x + self.radius * cos(-a), self.y + self.radius * sin(-a)) for a in self.angles_r]
 
     def __repr__(self):
         image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
@@ -336,9 +295,13 @@ class Polygon(Figure):
         canvas.polygon(self.ve, fill='black')
         canvas.rectangle(self.bbox.ve, outline='green')
         canvas.rectangle(self.bbox_.ve, outline='red')
+        canvas.line(((self.x, self.y), self.ve[0]), fill='blue')
         canvas.point((self.x, self.y), fill='white')
         image.show()
         return f'{self.shape} with angles {self.angles_d} and radius {self.radius} bounded by green box ~ {self.bbox.ve}'
+
+    def draw(self, canvas, colour):
+        return canvas.polygon(self.ve, fill=colour)
 
 
 class Circle(Figure):
@@ -362,12 +325,37 @@ class Circle(Figure):
         image.show()
         return f'{self.shape} with radius {self.radius} bounded by green box ~ {self.bbox.ve}'
 
+    def draw(self, canvas, colour):
+        return canvas.ellipse(self.ve, fill=colour)
+
+
+class Rectangle(Polygon):
+    def __init__(self, center, half_size, ratio=0.7, angle=0, sqrnss=0.3):
+        super().__init__(center, half_size, ratio=ratio, angle=angle)
+        """we are going to inscribe this rectangle into max possible circle of Polygon class, 
+        and set up with just 2 angles(start, add up to 90deg to get 2nd vertex, then reflect to get the remaining two)
+        parameter squareness=0...1 yields a square when 1"""
+        self.shape = self.__class__.__name__
+        self.angular_delta = sqrnss * 90
+        # set up vertices counterclockwise, convert to radians, overwrite default polygon attributes (Hexagon
+        self.angles_d = [angle, angle + self.angular_delta, 180 + angle, 180 + angle + self.angular_delta]
+        self.angles_r = list(map(lambda a: a * pi / 180, self.angles_d))
+        self.ve = [(self.x + self.radius * cos(-a), self.y + self.radius * sin(-a)) for a in self.angles_r]
+        # update bounding box
+        new_bb_min = min(self.ve, key=lambda t: t[0])[0] - MARGIN, min(self.ve, key=lambda t: t[1])[1] - MARGIN
+        new_bb_max = max(self.ve, key=lambda t: t[0])[0] + MARGIN, max(self.ve, key=lambda t: t[1])[1] + MARGIN
+        new_wh = ((new_bb_max[0] - new_bb_min[0]) / 2, (new_bb_max[1] - new_bb_min[1]) / 2)
+        self.bbox = BBox(center, new_wh)
+
 
 # print(Triangle((100, 100), (50, 50)))
-print(Rhombus((100, 100), (20, 70)))
-# print(Polygon((100, 100), (50, 50), ratio=0.7, nv=4, angle=20))
+# print(Rhombus((100, 100), (20, 70)))
+# print(Polygon((100, 100), (50, 50), ratio=0.7, nv=6, angle=44))
 # print(Circle((100, 100), (30, 50), ratio=0.7))
-# TODO 3: choose visual framework
+# print(Rectangle((120, 120), (80, 90), ratio=0.9, angle=20, sqrnss=0.2))
+
+id_to_class = {0: Circle, 1: Rhombus, 2: Rectangle, 3: Triangle, 4: Polygon}
+
 
 def rc_parts(xy_list, wh_list):
     """choose up to 5 different boxes"""
@@ -386,17 +374,48 @@ def draw_bounds(res):
         b_ = b[0], (map(lambda d: d - MARGIN, b[1]))
         box = BBox(*b_)
         canvas.rectangle(box.ve, fill='black')
+        canvas.point(b[0], fill='white')
     image.show()
 
-# # allocate Ox, Oy projections of possible rectangles
-# x, y = get_centers(), get_centers()
-# # generate product of all xs, ys (all possible combinations without replacement)
-# centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
-# choice = rc_parts(centers_xy, half_sizes_wh)
-# print(f'{len(centers_xy)} rectangles (and their shapes) in total, chosen {len(choice)}')
-# # draw_bounds(choice)
+
+# allocate Ox, Oy projections of possible rectangles
+x, y = get_centers(), get_centers()
+# generate product of all xs, ys (all possible combinations without replacement)
+centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
+# draw_bounds(zip(centers_xy, half_sizes_wh))'
+
+choice = rc_parts(centers_xy, half_sizes_wh)
+print(f'{len(centers_xy)} rectangles (and their shapes) in total, chosen {len(choice)}')
+
+
 # get allowed rectangles
-# print(choice)
+# draw_bounds(choice)
+
+def draw_shapes(bboxes_list):
+    # random colour palette (6) from a default cmap
+    colours_dict = ImageColor.colormap
+    c_names = list(colours_dict.keys())
+    # random.seed(RSEED)
+    random.shuffle(c_names)
+    palette = [colours_dict[name] for name in c_names[:6]]
+    image = Image.new(mode='RGB', size=(SIZE, SIZE), color=palette[0])
+    canvas = ImageDraw.Draw(image)
+    figures = []
+    for b in bboxes_list:
+        # random.seed(RSEED)
+        sh_id = random.randint(1, 5)
+        class_ch = id_to_class[sh_id-1]
+        colour_ch = palette[sh_id]
+        print(class_ch.__dict__.keys())
+        # set up an instance
+        obj = class_ch(*b)
+        obj.draw(canvas, colour_ch)
+        figures.append(obj)
+    image.show()
+
+
+draw_shapes(choice)
+
 # TODO 4: describe (id,type,x,y,w,h)
 # TODO 5: inscribe 4 shapes into those rectangles, fill-in with colours
 # TODO 6: serialize via json
