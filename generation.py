@@ -13,7 +13,8 @@ RSEED = 42
 PATH = './'
 
 SIZE = 256
-THR = 25
+# 25++ because inscribed object might be smaller
+THR = 25 + 15
 PARTS = 5
 MARGIN = 3
 
@@ -71,7 +72,7 @@ def rand_split(n, k: int, l_bound=0):
 # except AssertionError:
 #     print('function behaves wrong')
 
-def get_centers(n=SIZE, k=PARTS-2, l_bound=THR):
+def get_centers(n=SIZE, k=PARTS - 2, l_bound=THR):
     """convenient function that transforms exact parameters from just spacers"""
     assert k > 2, 'wrong PARTS quantity'
     spacers = rand_split(n, k, l_bound)
@@ -174,7 +175,7 @@ class BBox(Figure):
 # print(box1+box2)
 
 class Triangle(Figure):
-    def __init__(self, center, half_size, var_threshold=0.8):
+    def __init__(self, center, half_size, std_threshold=0.7):
         super().__init__(center, half_size)
         self.shape = self.__class__.__name__
         half_size = list(map(round, half_size))
@@ -185,7 +186,7 @@ class Triangle(Figure):
         random.shuffle(shift_y)
         # prevent slim triangles as it's hard to distinguish those
         std_x, std_y = 0, 0
-        while std_x * std_y < var_threshold * (half_size[0] * half_size[1]):
+        while std_x < std_threshold * half_size[0] or std_y < std_threshold * half_size[1]:
             random.shuffle(shift_x)
             random.shuffle(shift_y)
             std_x, std_y = statistics.stdev(shift_x[:3]), statistics.stdev(shift_y[:3])
@@ -233,7 +234,7 @@ class Rhombus(Figure):
             return list(map(lambda x: -round((nni[0] * x + nni[2]) / nni[1]), xs))
 
         x_lim = self.bbox.x + MARGIN, round(self.bbox.ve_max[0]) - MARGIN
-        side_x = random.randint(x_lim[0] + round(s*(x_lim[1]-x_lim[0]-2*MARGIN))-MARGIN, x_lim[1])
+        side_x = random.randint(x_lim[0] + round(s * (x_lim[1] - x_lim[0] - 2 * MARGIN)) - MARGIN, x_lim[1])
         # invert side_x (relative to center)
         side_xi = self.x - (side_x - self.x)
         side_xs = (side_xi, side_x)
@@ -258,6 +259,31 @@ class Rhombus(Figure):
 
     def draw(self, canvas, colour):
         return canvas.polygon(self.ve, fill=colour)
+
+
+class Circle(Figure):
+    def __init__(self, center, half_size, s=0.9):
+        super().__init__(center, half_size)
+        self.shape = self.__class__.__name__
+        self.bbox_ = BBox(center, half_size)
+        self.max_radius = min(half_size) - MARGIN
+        self.radius = random.uniform(0.7, s) * self.max_radius
+        # crop to square w/ margin
+        self.bbox = BBox(center, (self.radius, self.radius))
+        self.ve = [(self.x - self.radius, self.y - self.radius), (self.x + self.radius, self.y + self.radius)]
+
+    def __repr__(self):
+        image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
+        canvas = ImageDraw.Draw(image)
+        canvas.ellipse(self.ve, fill='black')
+        canvas.rectangle(self.bbox.ve, outline='green')
+        canvas.rectangle(self.bbox_.ve, outline='red')
+        canvas.point((self.x, self.y), fill='white')
+        image.show()
+        return f'{self.shape} with radius {self.radius} bounded by green box ~ {self.bbox.ve}'
+
+    def draw(self, canvas, colour):
+        return canvas.ellipse(self.ve, fill=colour)
 
 
 class Polygon(Figure):
@@ -304,33 +330,8 @@ class Polygon(Figure):
         return canvas.polygon(self.ve, fill=colour)
 
 
-class Circle(Figure):
-    def __init__(self, center, half_size, ratio=0.7):
-        super().__init__(center, half_size)
-        self.shape = self.__class__.__name__
-        self.bbox_ = BBox(center, half_size)
-        self.max_radius = min(half_size) - MARGIN
-        self.radius = ratio * self.max_radius
-        # crop to square w/ margin
-        self.bbox = BBox(center, (self.radius, self.radius))
-        self.ve = [(self.x - self.radius, self.y - self.radius), (self.x + self.radius, self.y + self.radius)]
-
-    def __repr__(self):
-        image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
-        canvas = ImageDraw.Draw(image)
-        canvas.ellipse(self.ve, fill='black')
-        canvas.rectangle(self.bbox.ve, outline='green')
-        canvas.rectangle(self.bbox_.ve, outline='red')
-        canvas.point((self.x, self.y), fill='white')
-        image.show()
-        return f'{self.shape} with radius {self.radius} bounded by green box ~ {self.bbox.ve}'
-
-    def draw(self, canvas, colour):
-        return canvas.ellipse(self.ve, fill=colour)
-
-
 class Rectangle(Polygon):
-    def __init__(self, center, half_size, ratio=0.7, angle=0, max_sqrnss=0.9):
+    def __init__(self, center, half_size, ratio=0.7, angle=0, max_sqrnss=0.8):
         super().__init__(center, half_size, ratio=ratio, angle=angle)
         """we are going to inscribe this rectangle into max possible circle of Polygon class, 
         and set up with just 2 angles(start, add up to 90deg to get 2nd vertex, then reflect to get the remaining two)
@@ -403,24 +404,34 @@ def draw_shapes(bboxes_list):
     image = Image.new(mode='RGB', size=(SIZE, SIZE), color=palette[0])
     canvas = ImageDraw.Draw(image)
     figures = []
+    sizes = []
     for b in bboxes_list:
         # random.seed(RSEED)
         sh_id = random.randint(1, 5)
         # random colour (of 140)
         colour_ch = palette[sh_id]
         # random shape (of 5)
-        class_ch = id_to_class[sh_id-1]
+        class_ch = id_to_class[sh_id - 1]
         # explore more options to randomize if possible (before instantiation)
         params = set(inspect.signature(class_ch).parameters)
         extra_params = params - {'center', 'half_size'}
         if len(extra_params) > 1:
             # otherwise they're Rhombus and Triangle, already quite random and depend on just the bbox
-            print(extra_params)
+            # choose 'size'
+            ratio_ch = random.uniform(0.85, 1)
+            # rotate to an angle
+            angle_ch = random.randrange(0, 90)
+            obj = class_ch(*b, ratio=ratio_ch, angle=angle_ch)
 
         # set up an instance
         obj = class_ch(*b)
         obj.draw(canvas, colour_ch)
         figures.append(obj)
+        sizes.append((round(min(obj.bbox.wh)), round(max(obj.bbox.wh))))
+    # check sizes
+    for i, s in enumerate(sizes):
+        if s[0] < 25 or s[1] > 150:
+            raise ValueError(f'Figure {figures[i]} exceeds (25...150) limits {s}')
     print(f'Image contains: {len(figures)} figure(s): {[f.__class__.__name__ for f in figures]}')
     image.show()
 
