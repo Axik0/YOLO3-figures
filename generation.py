@@ -71,8 +71,9 @@ def rand_split(n, k: int, l_bound=0):
 # except AssertionError:
 #     print('function behaves wrong')
 
-def get_centers(n=SIZE, k=PARTS, l_bound=THR):
-    """convenient function that generates by default """
+def get_centers(n=SIZE, k=PARTS-2, l_bound=THR):
+    """convenient function that transforms exact parameters from just spacers"""
+    assert k > 2, 'wrong PARTS quantity'
     spacers = rand_split(n, k, l_bound)
     delimiters = [0] + list(accumulate(spacers))[:-1] + [256]
     centers = [round(p + (f - p) / 2) for f, p in zip(delimiters[1:], delimiters[:-1])]
@@ -173,7 +174,7 @@ class BBox(Figure):
 # print(box1+box2)
 
 class Triangle(Figure):
-    def __init__(self, center, half_size, var_threshold=0.3):
+    def __init__(self, center, half_size, var_threshold=0.8):
         super().__init__(center, half_size)
         self.shape = self.__class__.__name__
         half_size = list(map(round, half_size))
@@ -183,11 +184,11 @@ class Triangle(Figure):
         random.shuffle(shift_x)
         random.shuffle(shift_y)
         # prevent slim triangles as it's hard to distinguish those
-        var_x, var_y = 0, 0
-        while var_x * var_y < var_threshold * (half_size[0] * half_size[1]):
+        std_x, std_y = 0, 0
+        while std_x * std_y < var_threshold * (half_size[0] * half_size[1]):
             random.shuffle(shift_x)
             random.shuffle(shift_y)
-            var_x, var_y = statistics.stdev(shift_x[:3]), statistics.stdev(shift_y[:3])
+            std_x, std_y = statistics.stdev(shift_x[:3]), statistics.stdev(shift_y[:3])
         x, y = [self.x + sx for sx in shift_x[:3]], [self.y + sy for sy in shift_y[:3]]
         self.ve = list(zip(x, y))
         ve_min = min(x), min(y)
@@ -211,7 +212,7 @@ class Triangle(Figure):
 
 class Rhombus(Figure):
     def __init__(self, center, half_size, s=0.9):
-        """larger s -- thinner rhombus"""
+        """random size within bounding box, smaller s -- thinner rhombus """
         super().__init__(center, half_size)
         self.shape = self.__class__.__name__
         self.bbox_ = BBox(center, half_size)
@@ -329,13 +330,15 @@ class Circle(Figure):
 
 
 class Rectangle(Polygon):
-    def __init__(self, center, half_size, ratio=0.7, angle=0, sqrnss=0.3):
+    def __init__(self, center, half_size, ratio=0.7, angle=0, max_sqrnss=0.9):
         super().__init__(center, half_size, ratio=ratio, angle=angle)
         """we are going to inscribe this rectangle into max possible circle of Polygon class, 
         and set up with just 2 angles(start, add up to 90deg to get 2nd vertex, then reflect to get the remaining two)
-        parameter squareness=0...1 yields a square when 1"""
+        parameter squareness=0...1 yields a square when 1, supposed to be random"""
         self.shape = self.__class__.__name__
-        self.angular_delta = sqrnss * 90
+        self.sqrnss = random.uniform(0.3, max_sqrnss)
+        self.angular_delta = self.sqrnss * 90
+
         # set up vertices counterclockwise, convert to radians, overwrite default polygon attributes (Hexagon
         self.angles_d = [angle, angle + self.angular_delta, 180 + angle, 180 + angle + self.angular_delta]
         self.angles_r = list(map(lambda a: a * pi / 180, self.angles_d))
@@ -411,12 +414,14 @@ def draw_shapes(bboxes_list):
         params = set(inspect.signature(class_ch).parameters)
         extra_params = params - {'center', 'half_size'}
         if len(extra_params) > 1:
+            # otherwise they're Rhombus and Triangle, already quite random and depend on just the bbox
             print(extra_params)
+
         # set up an instance
         obj = class_ch(*b)
         obj.draw(canvas, colour_ch)
         figures.append(obj)
-    print(f'Image contains: {len(figures)} figures such as {[f.__class__.__name__ for f in figures]}')
+    print(f'Image contains: {len(figures)} figure(s): {[f.__class__.__name__ for f in figures]}')
     image.show()
 
 
