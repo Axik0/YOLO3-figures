@@ -446,7 +446,7 @@ def tile(pil_img_list, amount=100):
 id_to_class = {0: Circle, 1: Rhombus, 2: Rectangle, 3: Triangle, 4: Polygon}
 
 
-def generate(n, img_path, data_path, store=True):
+def generate(n, pics_path, data_path, store=True):
     """generates n random 256*256 images within given limitations, random colours etc.,
     stores them all as pngs at img_path, their serialized description goes to data_path,"""
     data = {}
@@ -466,11 +466,12 @@ def generate(n, img_path, data_path, store=True):
         # result[0].show()
         img_to_show.append(result[0])
         # store picture
+        img_path = os.path.join(pics_path, f'{i}.png')
         if store:
-            result[0].save(fp=os.path.join(img_path, f'{i}.png'))
-        # create description {0:[[fig1_type, bbox1_start, bbox1_wh],[fig1_type, bbox1_start, bbox1_wh],...], 1:...}
+            result[0].save(fp=img_path)
+        # create description {img_path:[[fig1_type, bbox1_start, bbox1_wh],[fig1_type, bbox1_start, bbox1_wh],...], 1:...}
         description = list((f.shape, f.bbox.ve_min, f.bbox.wh) for f in result[1])
-        data[i] = description
+        data[img_path[2:]] = description
         if i % 200 == 0:
             print(i)
     print(f'{len(data)} images have been created {"and saved" if store else ""} successfully')
@@ -521,5 +522,5 @@ if __name__ == '__main__':
     # result = draw_shapes(choice)
     # result[0].show()
 
-    d = generate(n=100, img_path=picture_path, data_path=json_path, store=False)
+    d = generate(n=100, pics_path=picture_path, data_path=json_path, store=False)
     tile(d, 100).show()
