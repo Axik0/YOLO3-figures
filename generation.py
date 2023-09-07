@@ -438,9 +438,6 @@ def tile(pil_img_list, amount=100):
     return img
 
 
-id_to_class = {0: Circle, 1: Rhombus, 2: Rectangle, 3: Triangle, 4: Polygon}
-
-
 def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
     """generates n random 256*256 images within given limitations, random colours etc.,
     stores them all as pngs at img_path, their serialized description goes to data_path,"""
@@ -493,12 +490,29 @@ def load_dataset(root=PATH, data_name=DNAME):
     return images, description
 
 
+id_to_class = [Circle, Rhombus, Rectangle, Triangle, Polygon]
+# have to instantiate T_T
+id_to_cname = [c((100, 100), (50, 50)).shape for c in id_to_class]
+cname_to_id = {cn: i for i, cn in enumerate(id_to_cname)}
+
+
 class FiguresDataset(VisionDataset):
     def __init__(self, root=PATH, transforms=None):
         super().__init__(root)
-        self.images, self.descriptions = load_dataset()
-        assert len(self.images) == len(self.descriptions), 'wrong dataset generation, please retry'
+        self.images, self.descriptions_ = load_dataset()
+        assert len(self.images) == len(self.descriptions_), 'wrong dataset generation, please retry'
         self.transforms = transforms
+        new_descriptions = []
+        for desc in self.descriptions_:
+            labels_list, bbox_list = [],[]
+            for fig in desc:
+                # [['Rhombus', [16, 32], [60.104076400856535, 60.104076400856535]], ['Hexagon', [20, 190], [51.8, 51.8]],...]
+                # lay out bbox as (xmin,ymin,xmax,ymax)
+                bbox = fig[1] + [fig[1][i] + fig[2][i] for i in range(2)]
+                bbox_list.append(bbox)
+                labels_list.append(cname_to_id[fig[0]])
+            new_descriptions.append((labels_list, bbox_list))
+        self.descriptions = new_descriptions
 
     def __getitem__(self, idx):
         return self.images[idx], self.descriptions[idx]
