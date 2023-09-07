@@ -1,20 +1,26 @@
-import numpy
 import os
 import json
 import inspect
 
 import random
 import statistics
-from math import pi, sin, cos, sqrt, atan
+from math import pi, sin, cos, sqrt
 from itertools import accumulate, product
 from PIL import Image, ImageDraw, ImageColor
 
 RSEED = 42
 PATH = './'
 FNAME = 'pics'
+DNAME = 'data.json'
 
 picture_path = os.path.join(PATH, FNAME)
-json_path = os.path.join(PATH,'data.json')
+json_path = os.path.join(PATH, DNAME)
+
+SIZE = 256
+# 25++ because inscribed object might be smaller
+THR = 25 + 20
+PARTS = 5
+MARGIN = 3
 
 try:
     os.mkdir(picture_path)
@@ -26,16 +32,6 @@ def get_data(json_object_path):
         res = json.load(f)
     return res
 
-SIZE = 256
-# 25++ because inscribed object might be smaller
-THR = 25 + 20
-PARTS = 5
-MARGIN = 3
-
-
-# random.seed(RSEED)
-# numpy.random.seed(RSEED)
-# TODO 1: generate random axis split (non-overlapping, up to 5)
 def rand_split(n, k: int, l_bound=0):
     """recursive random split, performs (correlated) random split of n
      onto k parts, outputs list of k spacers > l_bound that sum up to n"""
@@ -106,8 +102,6 @@ def rc_parts(xy_list, wh_list):
     # random quantity from 1..PARTS
     q = random.randint(1, PARTS)
     return [(xy_list[i], wh_list[i]) for i in idx[:q]]
-
-# TODO 2: set up classes
 
 
 class Figure:
@@ -188,15 +182,6 @@ class BBox(Figure):
             iou = 0
         return iou
 
-
-# box1 = BBox((100, 100), (40, 10))
-# print(box1)
-# # print(box.ve_min, box.ve_max)
-# box2 = BBox((70, 100), (20, 10))
-# print(box2)
-
-# print(box1.get_iou(box2))
-# print(box1+box2)
 
 class Triangle(Figure):
     def __init__(self, center, half_size, std_threshold=0.7):
@@ -374,13 +359,6 @@ class Rectangle(Polygon):
         new_wh = ((new_bb_max[0] - new_bb_min[0]) / 2, (new_bb_max[1] - new_bb_min[1]) / 2)
         self.bbox = BBox(center, new_wh)
 
-
-# print(Triangle((100, 100), (50, 50)))
-# print(Rhombus((100, 100), (20, 70)))
-# print(Polygon((100, 100), (50, 50), ratio=0.7, nv=6, angle=44))
-# print(Circle((100, 100), (30, 50), ratio=0.7))
-# print(Rectangle((120, 120), (80, 90), ratio=0.9, angle=20, sqrnss=0.2))
-
 id_to_class = {0: Circle, 1: Rhombus, 2: Rectangle, 3: Triangle, 4: Polygon}
 
 
@@ -440,20 +418,22 @@ def draw_shapes(bboxes_list, mute=False):
     return image, figures
 
 
-# # allocate Ox, Oy projections of possible rectangles
-# x, y = get_centers(), get_centers()
-# # generate product of all xs, ys (all possible combinations without replacement)
-# centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
-# # draw_bounds(zip(centers_xy, half_sizes_wh))'
-#
-# choice = rc_parts(centers_xy, half_sizes_wh)
-# print(f'{len(centers_xy)} rectangles (and their shapes) in total, chosen {len(choice)}')
+def tile(pil_img_list, amount=100):
+    """concatenates ~amount images layout for visualization"""
+    assert amount != 0, 'amount cant be just 0'
+    side = int(sqrt(amount))
+    tile_width = pil_img_list[0].width + MARGIN
+    tile_height = pil_img_list[0].height + MARGIN
+    new_width = tile_width * side
+    new_height = tile_height * side
+    img = Image.new(mode='RGB', size=(new_width, new_height))
+    for i in range(side):
+        # process row-wise
+        for j in range(side):
+            # concatenate horizontally
+            img.paste(d[j+i*side], (i*tile_height,j*tile_width))
+    return img
 
-
-# get allowed rectangles
-# draw_bounds(choice)
-# result = draw_shapes(choice)
-# result.show()
 
 def generate(n, img_path, data_path):
     data = {}
@@ -486,5 +466,35 @@ def generate(n, img_path, data_path):
     return img_to_show
 
 
-d = generate(n=100, img_path=picture_path, data_path=json_path)
-d[2].show()
+if __name__ == '__main__':
+    # box1 = BBox((100, 100), (40, 10))
+    # print(box1)
+    # # print(box.ve_min, box.ve_max)
+    # box2 = BBox((70, 100), (20, 10))
+    # print(box2)
+    # print(box1.get_iou(box2))
+    # print(box1+box2)
+
+    # print(Triangle((100, 100), (50, 50)))
+    # print(Rhombus((100, 100), (20, 70)))
+    # print(Polygon((100, 100), (50, 50), ratio=0.7, nv=6, angle=44))
+    # print(Circle((100, 100), (30, 50), ratio=0.7))
+    # print(Rectangle((120, 120), (80, 90), ratio=0.9, angle=20, sqrnss=0.2))
+
+    # # allocate Ox, Oy projections of possible rectangles
+    # x, y = get_centers(), get_centers()
+    # # generate product of all xs, ys (all possible combinations without replacement)
+    # centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
+    # # draw_bounds(zip(centers_xy, half_sizes_wh))'
+
+    # choice = rc_parts(centers_xy, half_sizes_wh)
+    # print(f'{len(centers_xy)} rectangles (and their shapes) in total, chosen {len(choice)}')
+
+    # get allowed rectangles
+    # draw_bounds(choice)
+    # result = draw_shapes(choice)
+    # result[0].show()
+
+    d = generate(n=100, img_path=picture_path, data_path=json_path)
+    tile(d, 100).show()
+
