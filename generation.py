@@ -481,13 +481,16 @@ def generate(n, img_path, data_path, store=True):
     return img_to_show
 
 
-def load_dataset(j_path=json_path, p_path=picture_path):
+def load_dataset(j_path=json_path, p_path=picture_path, tv=True):
     data = get_data(json_object_path=j_path)
     picture_paths = [os.path.join(p_path, name) for name in os.listdir(p_path)]
     images = [load_image(p) for p in picture_paths]
     assert len(images) == len(data), 'wrong generation'
     print(f'{len(images)} images and their descriptions have been loaded successfully')
-    return images, data
+    if tv:
+        return picture_paths, data
+    else:
+        return images, data
 
 
 if __name__ == '__main__':
