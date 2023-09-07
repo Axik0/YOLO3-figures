@@ -9,25 +9,20 @@ from math import pi, sin, cos, sqrt
 from itertools import accumulate, product
 # drawing framework
 from PIL import Image, ImageDraw, ImageColor
+# template class for a dataset (makes our dataset compatible with torchvision)
+from torchvision.datasets import VisionDataset
+from torchvision.io import read_image
 
 RSEED = 42
 PATH = './'
 FNAME = 'pics'
 DNAME = 'data.json'
 
-picture_path = os.path.join(PATH, FNAME)
-json_path = os.path.join(PATH, DNAME)
-
 SIZE = 256
 # 25++ because inscribed objects might be smaller
 THR = 25 + 20
 PARTS = 5
 MARGIN = 3
-
-try:
-    os.mkdir(picture_path)
-except FileExistsError:
-    pass
 
 
 def get_data(json_object_path):
@@ -36,9 +31,9 @@ def get_data(json_object_path):
     return res
 
 
-def load_image(image_path):
-    with open(image_path, 'rb') as p:
-        return p
+# def load_image(image_path):
+#     with open(image_path, 'rb') as p:
+#         return p
 
 
 def rand_split(n, k: int, l_bound=0):
@@ -439,18 +434,20 @@ def tile(pil_img_list, amount=100):
         # process row-wise
         for j in range(side):
             # concatenate horizontally
-            img.paste(d[j + i * side], (i * tile_height, j * tile_width))
+            img.paste(pil_img_list[j + i * side], (i * tile_height, j * tile_width))
     return img
 
 
 id_to_class = {0: Circle, 1: Rhombus, 2: Rectangle, 3: Triangle, 4: Polygon}
 
 
-def generate(n, pics_path, data_path, store=True):
+def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
     """generates n random 256*256 images within given limitations, random colours etc.,
     stores them all as pngs at img_path, their serialized description goes to data_path,"""
     data = {}
     img_to_show = []
+    json_path = os.path.join(root, data_name)
+
     for i in range(n):
         # allocate Ox, Oy projections of possible rectangles
         x, y = get_centers(mute=True), get_centers(mute=True)
@@ -466,33 +463,51 @@ def generate(n, pics_path, data_path, store=True):
         # result[0].show()
         img_to_show.append(result[0])
         # store picture
-        img_path = os.path.join(pics_path, f'{i}.png')
+        local_img_path = os.path.join(folder_name, f'{i}.png')
         if store:
-            result[0].save(fp=img_path)
-        # create description {img_path:[[fig1_type, bbox1_start, bbox1_wh],[fig1_type, bbox1_start, bbox1_wh],...], 1:...}
+            abs_folder_path = os.path.join(root, folder_name)
+            try:
+                os.mkdir(abs_folder_path)
+            except FileExistsError:
+                pass
+            finally:
+                result[0].save(fp=os.path.join(root, local_img_path))
+        # create descr ~ {img_path:[[fig1_type, bbox1_start, bbox1_wh],[fig1_type, bbox1_start, bbox1_wh],...], 1:...}
         description = list((f.shape, f.bbox.ve_min, f.bbox.wh) for f in result[1])
-        data[img_path[2:]] = description
+        data[local_img_path] = description
         if i % 200 == 0:
             print(i)
-    print(f'{len(data)} images have been created {"and saved" if store else ""} successfully')
     # store its description
     if store:
-        with open(data_path, 'w') as f:
+        with open(json_path, 'w') as f:
             json.dump(data, f)
+    print(f'{len(data)} images have been created {"and saved" if store else ""} successfully')
     return img_to_show
 
 
-def load_dataset(j_path=json_path, p_path=picture_path, tv=True):
-    data = get_data(json_object_path=j_path)
-    picture_paths = [os.path.join(p_path, name) for name in os.listdir(p_path)]
-    images = [load_image(p) for p in picture_paths]
+def load_dataset(root=PATH, folder_name=FNAME, data_name=DNAME):
+    """requires torchvision import, outputs torch tensors as images"""
+    data = get_data(json_object_path=os.path.join(root, data_name))
+    abs_folder_path = os.path.join(root, folder_name)
+    # i don't use data.keys() jic
+    picture_paths = [os.path.join(abs_folder_path, name) for name in os.listdir(abs_folder_path)]
+    images = [read_image(path) for path in picture_paths]
     assert len(images) == len(data), 'wrong generation'
     print(f'{len(images)} images and their descriptions have been loaded successfully')
-    if tv:
-        return picture_paths, data
-    else:
-        return images, data
+    return images, data
 
+
+class Figures(VisionDataset):
+    def __init__(self, root, transform=None):
+        super().__init__(root)
+        self.images, self.data = load_dataset()
+        self.transform = transform
+
+    def __getitem__(self, idx):
+        return self.images[idx]
+
+    def __len__(self):
+        return len(self.paths)
 
 if __name__ == '__main__':
     # box1 = BBox((100, 100), (40, 10))
@@ -522,5 +537,5 @@ if __name__ == '__main__':
     # result = draw_shapes(choice)
     # result[0].show()
 
-    d = generate(n=100, pics_path=picture_path, data_path=json_path, store=False)
-    tile(d, 100).show()
+    d = generate(n=10000, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
+    tile(d, 1000).show()
