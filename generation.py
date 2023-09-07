@@ -2,10 +2,12 @@ import os
 import json
 import inspect
 
+# i won't use numpy for a task that simple intentionally
 import random
 import statistics
 from math import pi, sin, cos, sqrt
 from itertools import accumulate, product
+# drawing framework
 from PIL import Image, ImageDraw, ImageColor
 
 RSEED = 42
@@ -17,7 +19,7 @@ picture_path = os.path.join(PATH, FNAME)
 json_path = os.path.join(PATH, DNAME)
 
 SIZE = 256
-# 25++ because inscribed object might be smaller
+# 25++ because inscribed objects might be smaller
 THR = 25 + 20
 PARTS = 5
 MARGIN = 3
@@ -27,10 +29,12 @@ try:
 except FileExistsError:
     pass
 
+
 def get_data(json_object_path):
     with open(json_object_path, 'r') as f:
         res = json.load(f)
     return res
+
 
 def rand_split(n, k: int, l_bound=0):
     """recursive random split, performs (correlated) random split of n
@@ -189,8 +193,8 @@ class Triangle(Figure):
         self.shape = self.__class__.__name__
         half_size = list(map(round, half_size))
         self.bbox_ = BBox(center, half_size)
-        shift_x = list(range(-half_size[0] + 2*MARGIN, half_size[0] - 2*MARGIN))
-        shift_y = list(range(-half_size[1] + 2*MARGIN, half_size[1] - 2*MARGIN))
+        shift_x = list(range(-half_size[0] + 2 * MARGIN, half_size[0] - 2 * MARGIN))
+        shift_y = list(range(-half_size[1] + 2 * MARGIN, half_size[1] - 2 * MARGIN))
         random.shuffle(shift_x)
         random.shuffle(shift_y)
         # prevent slim triangles as it's hard to distinguish those
@@ -359,8 +363,6 @@ class Rectangle(Polygon):
         new_wh = ((new_bb_max[0] - new_bb_min[0]) / 2, (new_bb_max[1] - new_bb_min[1]) / 2)
         self.bbox = BBox(center, new_wh)
 
-id_to_class = {0: Circle, 1: Rhombus, 2: Rectangle, 3: Triangle, 4: Polygon}
-
 
 def draw_bounds(res):
     image = Image.new(mode='RGB', size=(SIZE, SIZE), color='white')
@@ -421,6 +423,7 @@ def draw_shapes(bboxes_list, mute=False):
 def tile(pil_img_list, amount=100):
     """concatenates ~amount images layout for visualization"""
     assert amount != 0, 'amount cant be just 0'
+    assert len(pil_img_list) > amount, 'we dont have that many images'
     side = int(sqrt(amount))
     tile_width = pil_img_list[0].width + MARGIN
     tile_height = pil_img_list[0].height + MARGIN
@@ -431,11 +434,16 @@ def tile(pil_img_list, amount=100):
         # process row-wise
         for j in range(side):
             # concatenate horizontally
-            img.paste(d[j+i*side], (i*tile_height,j*tile_width))
+            img.paste(d[j + i * side], (i * tile_height, j * tile_width))
     return img
 
 
+id_to_class = {0: Circle, 1: Rhombus, 2: Rectangle, 3: Triangle, 4: Polygon}
+
+
 def generate(n, img_path, data_path):
+    """generates n random 256*256 images within given limitations, random colours etc.,
+    stores them all as pngs at img_path, their serialized description goes to data_path,"""
     data = {}
     img_to_show = []
     for i in range(n):
@@ -469,7 +477,6 @@ def generate(n, img_path, data_path):
 if __name__ == '__main__':
     # box1 = BBox((100, 100), (40, 10))
     # print(box1)
-    # # print(box.ve_min, box.ve_max)
     # box2 = BBox((70, 100), (20, 10))
     # print(box2)
     # print(box1.get_iou(box2))
@@ -496,5 +503,4 @@ if __name__ == '__main__':
     # result[0].show()
 
     d = generate(n=100, img_path=picture_path, data_path=json_path)
-    tile(d, 100).show()
-
+    tile(d, 50).show()
