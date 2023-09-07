@@ -36,6 +36,11 @@ def get_data(json_object_path):
     return res
 
 
+def load_image(image_path):
+    with open(image_path, 'rb') as p:
+        return p
+
+
 def rand_split(n, k: int, l_bound=0):
     """recursive random split, performs (correlated) random split of n
      onto k parts, outputs list of k spacers > l_bound that sum up to n"""
@@ -423,7 +428,7 @@ def draw_shapes(bboxes_list, mute=False):
 def tile(pil_img_list, amount=100):
     """concatenates ~amount images layout for visualization"""
     assert amount != 0, 'amount cant be just 0'
-    assert len(pil_img_list) > amount, 'we dont have that many images'
+    assert len(pil_img_list) >= amount, 'we dont have that many images'
     side = int(sqrt(amount))
     tile_width = pil_img_list[0].width + MARGIN
     tile_height = pil_img_list[0].height + MARGIN
@@ -441,7 +446,7 @@ def tile(pil_img_list, amount=100):
 id_to_class = {0: Circle, 1: Rhombus, 2: Rectangle, 3: Triangle, 4: Polygon}
 
 
-def generate(n, img_path, data_path):
+def generate(n, img_path, data_path, store=True):
     """generates n random 256*256 images within given limitations, random colours etc.,
     stores them all as pngs at img_path, their serialized description goes to data_path,"""
     data = {}
@@ -461,17 +466,28 @@ def generate(n, img_path, data_path):
         # result[0].show()
         img_to_show.append(result[0])
         # store picture
-        result[0].save(fp=os.path.join(img_path, f'{i}.png'))
+        if store:
+            result[0].save(fp=os.path.join(img_path, f'{i}.png'))
         # create description {0:[[fig1_type, bbox1_start, bbox1_wh],[fig1_type, bbox1_start, bbox1_wh],...], 1:...}
         description = list((f.shape, f.bbox.ve_min, f.bbox.wh) for f in result[1])
         data[i] = description
         if i % 200 == 0:
             print(i)
-    print(f'{len(data)} images have been created successfully')
+    print(f'{len(data)} images have been created {"and saved" if store else ""} successfully')
     # store its description
-    with open(data_path, 'w') as f:
-        json.dump(data, f)
+    if store:
+        with open(data_path, 'w') as f:
+            json.dump(data, f)
     return img_to_show
+
+
+def load_dataset(j_path=json_path, p_path=picture_path):
+    data = get_data(json_object_path=j_path)
+    picture_paths = [os.path.join(p_path, name) for name in os.listdir(p_path)]
+    images = [load_image(p) for p in picture_paths]
+    assert len(images) == len(data), 'wrong generation'
+    print(f'{len(images)} images and their descriptions have been loaded successfully')
+    return images, data
 
 
 if __name__ == '__main__':
@@ -488,11 +504,11 @@ if __name__ == '__main__':
     # print(Circle((100, 100), (30, 50), ratio=0.7))
     # print(Rectangle((120, 120), (80, 90), ratio=0.9, angle=20, sqrnss=0.2))
 
-    # # allocate Ox, Oy projections of possible rectangles
+    # allocate Ox, Oy projections of possible rectangles
     # x, y = get_centers(), get_centers()
     # # generate product of all xs, ys (all possible combinations without replacement)
     # centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
-    # # draw_bounds(zip(centers_xy, half_sizes_wh))'
+    # draw_bounds(zip(centers_xy, half_sizes_wh))
 
     # choice = rc_parts(centers_xy, half_sizes_wh)
     # print(f'{len(centers_xy)} rectangles (and their shapes) in total, chosen {len(choice)}')
@@ -502,5 +518,5 @@ if __name__ == '__main__':
     # result = draw_shapes(choice)
     # result[0].show()
 
-    d = generate(n=100, img_path=picture_path, data_path=json_path)
-    tile(d, 50).show()
+    d = generate(n=100, img_path=picture_path, data_path=json_path, store=False)
+    tile(d, 100).show()
