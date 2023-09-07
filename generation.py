@@ -485,29 +485,27 @@ def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
     return img_to_show
 
 
-def load_dataset(root=PATH, folder_name=FNAME, data_name=DNAME):
-    """requires torchvision import, outputs torch tensors as images"""
+def load_dataset(root=PATH, data_name=DNAME):
+    """requires torchvision import, outputs list of torch tensors (images) and list of their descriptions"""
     data = get_data(json_object_path=os.path.join(root, data_name))
-    abs_folder_path = os.path.join(root, folder_name)
-    # i don't use data.keys() jic
-    picture_paths = [os.path.join(abs_folder_path, name) for name in os.listdir(abs_folder_path)]
-    images = [read_image(path) for path in picture_paths]
-    assert len(images) == len(data), 'wrong generation'
+    images, description = zip(*[(read_image(os.path.join(root, local_path)), data) for local_path, data in data.items()])
     print(f'{len(images)} images and their descriptions have been loaded successfully')
-    return images, data
+    return images, description
 
 
-class Figures(VisionDataset):
-    def __init__(self, root, transform=None):
+class FiguresDataset(VisionDataset):
+    def __init__(self, root=PATH, transforms=None):
         super().__init__(root)
-        self.images, self.data = load_dataset()
-        self.transform = transform
+        self.images, self.descriptions = load_dataset()
+        assert len(self.images) == len(self.descriptions), 'wrong dataset generation, please retry'
+        self.transforms = transforms
 
     def __getitem__(self, idx):
-        return self.images[idx]
+        return self.images[idx], self.descriptions[idx]
 
     def __len__(self):
-        return len(self.paths)
+        return len(self.images)
+
 
 if __name__ == '__main__':
     # box1 = BBox((100, 100), (40, 10))

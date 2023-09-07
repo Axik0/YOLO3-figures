@@ -1,7 +1,7 @@
 import numpy
 import torch
 import torchvision
-from generation import Figures
+from generation import FiguresDataset
 
-# ds = Figures(root=PATH)
-# print(ds[0])
+ds = FiguresDataset()
+print(ds[0])
