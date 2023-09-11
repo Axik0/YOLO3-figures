@@ -514,6 +514,11 @@ class FiguresDataset(VisionDataset):
                 curr_description.append((shape, *bbox))
             new_descriptions.append(curr_description)
         self.descriptions = new_descriptions
+        if self.transforms is not None:
+            print(000)
+            self.images = [self.transforms(img) for img in self.images]
+        else:
+            print(self.transforms)
 
     def __getitem__(self, idx):
         return self.images[idx], self.descriptions[idx]

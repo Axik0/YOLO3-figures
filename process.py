@@ -31,6 +31,7 @@ def sample(elements, size=9):
 
 if __name__ == '__main__':
     ds = FiguresDataset()
+
     # show_img(pick(ds[0]))
     sample(ds)
     print(ds[0][1])
