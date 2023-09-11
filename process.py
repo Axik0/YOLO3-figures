@@ -14,6 +14,7 @@ def show_img(tensor_chw):
 def pick(element):
     """Visualize an element from the dataset with all bounding boxes and figure labels"""
     tensor, description = element
+    tensor = tensor.to(torch.uint8)
     # [[1, 16, 32, 76.10407640085654, 92.10407640085654], ...]
     boxes_t, labels = [], []
     for f in description:
@@ -36,4 +37,4 @@ if __name__ == '__main__':
     sample(ds)
     print(ds[0][1])
 
-##moved jo jupyter notebook
+##moved to jupyter notebook
