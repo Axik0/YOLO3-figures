@@ -504,14 +504,16 @@ class FiguresDataset(VisionDataset):
         self.transforms = transforms
         new_descriptions = []
         for desc in self.descriptions_:
-            labels_list, bbox_list = [],[]
+            curr_description = []
             for fig in desc:
                 # [['Rhombus', [16, 32], [60.104076400856535, 60.104076400856535]], ['Hexagon', [20, 190], [51.8, 51.8]],...]
                 # lay out bbox as (xmin,ymin,xmax,ymax)
                 bbox = fig[1] + [fig[1][i] + fig[2][i] for i in range(2)]
-                bbox_list.append(bbox)
-                labels_list.append(cname_to_id[fig[0]])
-            new_descriptions.append((labels_list, bbox_list))
+                shape = cname_to_id[fig[0]]
+                # bbox_list.append(bbox)
+                # labels_list.append()
+                curr_description.append((shape, *bbox))
+            new_descriptions.append(curr_description)
         self.descriptions = new_descriptions
 
     def __getitem__(self, idx):

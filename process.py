@@ -1,4 +1,3 @@
-import numpy
 import numpy as np
 import torch
 import torchvision
@@ -29,4 +28,8 @@ def sample(elements, size=9):
 
 ds = FiguresDataset()
 # show_img(pick(ds[0]))
-# sample(ds)
+sample(ds)
+print(ds[0][1])
+
+
+##moved jo jupyter notebook
