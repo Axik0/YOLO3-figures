@@ -430,7 +430,6 @@ def draw_shapes(bboxes_list, mute=False):
             ratio_ch = random.uniform(0.9, 1)
             # rotate to an angle
             angle_ch = random.randrange(5, 90)
-            obj = class_ch(*b, ratio=ratio_ch, angle=angle_ch)
 
         # set up an instance
         obj = class_ch(*b)
