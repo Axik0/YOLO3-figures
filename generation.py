@@ -510,8 +510,7 @@ class FiguresDataset(VisionDataset):
                 # lay out bbox as (xmin,ymin,xmax,ymax)
                 bbox = fig[1] + [fig[1][i] + fig[2][i] for i in range(2)]
                 shape = cname_to_id[fig[0]]
-                # bbox_list.append(bbox)
-                # labels_list.append()
+                # lay out bbox as a tuple of 5: (shape, xmin,ymin,xmax,ymax)
                 curr_description.append((shape, *bbox))
             new_descriptions.append(curr_description)
         self.descriptions = new_descriptions
