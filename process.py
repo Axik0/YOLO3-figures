@@ -14,7 +14,9 @@ def show_img(tensor_chw):
 def pick(element):
     """Visualize an element from the dataset with all bounding boxes and figure labels"""
     tensor, description = element
-    tensor = tensor.to(torch.uint8)
+    # read_image outputs uint8 0..255,
+    # we transform that to float on the fly but still need uint8 for visualization to work
+    tensor = torchvision.transforms.ConvertImageDtype(torch.uint8)(tensor)
     # [[1, 16, 32, 76.10407640085654, 92.10407640085654], ...]
     boxes_t, labels = [], []
     for f in description:
@@ -31,10 +33,13 @@ def sample(elements, size=9):
 
 
 if __name__ == '__main__':
-    ds = FiguresDataset()
-
+    transform = torchvision.transforms.Compose([
+        torchvision.transforms.ConvertImageDtype(torch.float32),
+        # torchvision.transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+    ])
+    ds = FiguresDataset(transforms=transform)
     # show_img(pick(ds[0]))
     sample(ds)
-    print(ds[0][1])
+    print(ds[0][0])
 
 ##moved to jupyter notebook

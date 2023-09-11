@@ -1,8 +1,34 @@
+"""
+Generates 256*256 RGB image containing random amount of non-overlapping figures (up to 5).
+Each figure has its own rectangular bounding box, list of bboxes and shapes is a description
+
+Everything's random:
+Random shape (of 5),
+random size (within 25..150 range),
+random colour(140+ palette)
+
+My algorithm consists of 5 main steps:
+* yield list of spacers for random split of [0..256] interval WITH limitations (25<part<150)
+** accumulate spacers to get centers and max dimensions of bboxes
+*** repeat for 2nd axis, take product of two
+**** (randomly) choose 5 boxes out of (5-2)*(5-2) options
+***** inscribe (implemented as classes, random class choice) figures into 5 boxes
+
+I use PIL library to create .png image and store it in a project folder
+Its description is serialized with a help of json and stored nearby
+
+This library also provides convenient visualisation of all steps and loaders for the dataset,
+compatible with PyTorch's torchvision framework
+
+Known problems:
+round off errors and bbox refinement may lead to figures smaller than 25px
+triangle class sometimes still yields triangles too thin
+"""
 import os
 import json
 import inspect
 
-# i won't use numpy for a task that simple intentionally
+# I won't use numpy for a task that simple intentionally
 import random
 import statistics
 from math import pi, sin, cos, sqrt
@@ -13,10 +39,12 @@ from PIL import Image, ImageDraw, ImageColor
 from torchvision.datasets import VisionDataset
 from torchvision.io import read_image
 
+
 RSEED = 42
 PATH = './'
 FNAME = 'pics'
 DNAME = 'data.json'
+
 
 SIZE = 256
 # 25++ because inscribed objects might be smaller
@@ -516,8 +544,8 @@ class FiguresDataset(VisionDataset):
         self.descriptions = new_descriptions
 
     def __getitem__(self, idx):
-        self.transforms(self.images[idx]) if self.transforms else self.images[idx]
-        return self.images[idx], self.descriptions[idx]
+        image = self.transforms(self.images[idx]) if self.transforms else self.images[idx]
+        return image, self.descriptions[idx]
 
     def __len__(self):
         return len(self.images)
@@ -551,5 +579,5 @@ if __name__ == '__main__':
     # result = draw_shapes(choice)
     # result[0].show()
 
-    d = generate(n=10000, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
+    d = generate(n=1000, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
     tile(d, 1000).show()
