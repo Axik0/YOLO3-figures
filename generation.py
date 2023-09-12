@@ -420,15 +420,16 @@ def draw_shapes(bboxes_list, mute=False):
         # explore more options to randomize if possible (before instantiation)
         params = set(inspect.signature(class_ch).parameters)
         extra_params = params - {'center', 'half_size'}
+        extra_adjustments = {}
         if len(extra_params) > 1:
-            # otherwise they're Rhombus and Triangle, already quite random and depend on just the bbox
-            # choose 'size'
+            # otherwise they're Rhombus, Triangle, Circle, already quite random and depend on just the bbox
+            # choose 'ratio'
             ratio_ch = random.uniform(0.9, 1)
             # rotate to an angle
-            angle_ch = random.randrange(5, 90)
-
+            angle_ch = random.randrange(0, 45)
+            extra_adjustments = {'ratio': ratio_ch, 'angle': angle_ch}
         # set up an instance
-        obj = class_ch(*b)
+        obj = class_ch(*b, **extra_adjustments)
         obj.draw(canvas, colour_ch)
 
         size = (round(min(obj.bbox.wh)), round(max(obj.bbox.wh)))
@@ -586,5 +587,5 @@ if __name__ == '__main__':
     # result = draw_shapes(choice)
     # result[0].show()
 
-    d = generate(n=100, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
-    tile(d, 100).show()
+    d = generate(n=1000, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
+    tile(d, 1000).show()
