@@ -16,7 +16,7 @@ CFG = [
     (512, 3, 2),
     ["B", 8],
     (1024, 3, 2),
-    ["B", 4],  # To this point is Darknet-53
+    ["B", 4],  # To this point is Darknet-53 - used as feature extractor
     (512, 1, 1),
     (1024, 3, 1),
     "S",
@@ -38,7 +38,7 @@ class CNNBlock(nn.Module):
         super().__init__()
         self.bn_state = batch_norm
         self.cv = nn.Conv2d(in_channels, out_channels, bias=not self.bn_state, **kwargs)
-        # for predictions on some scale, we omit batch norm and relu activation
+        # for predictions, we omit batch norm and relu activation
         self.bn = nn.BatchNorm2d(out_channels) if self.bn_state else nn.Identity()
         self.nl = nn.LeakyReLU(0.1) if self.bn_state else nn.Identity()
 

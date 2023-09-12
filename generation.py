@@ -496,8 +496,8 @@ def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
                 pass
             finally:
                 result[0].save(fp=os.path.join(root, local_img_path))
-        # create descr ~ {img_path:[[fig1_type, bbox1_start, bbox1_wh],[fig1_type, bbox1_start, bbox1_wh],...], 1:...}
-        description = list((f.shape, f.bbox.ve_min, f.bbox.wh) for f in result[1])
+        # create descr ~ (img_path:[[fig1_type, bbox1_center, bbox1_wh], [fig2_type, bbox2_center, bbox2_wh], ...)
+        description = list((f.shape, (f.bbox.x, f.bbox.y), f.bbox.wh) for f in result[1])
         data[local_img_path] = description
         if i % 200 == 0:
             print(i)
@@ -524,20 +524,21 @@ cname_to_id = {cn: i for i, cn in enumerate(id_to_cname)}
 
 
 class FiguresDataset(VisionDataset):
-    def __init__(self, root=PATH, transforms=None):
+    def __init__(self, root=PATH, transforms=None, y3=True):
         super().__init__(root)
         self.images, self.descriptions_ = load_dataset()
         assert len(self.images) == len(self.descriptions_), 'wrong dataset generation, please retry'
         self.transforms = transforms
         new_descriptions = []
+        resize_factor = 416/SIZE if y3 else 1
         for desc in self.descriptions_:
             curr_description = []
             for fig in desc:
-                # [['Rhombus', [16, 32], [60.104076400856535, 60.104076400856535]], ['Hexagon', [20, 190], [51.8, 51.8]],...]
-                # lay out bbox as (xmin,ymin,xmax,ymax)
-                bbox = fig[1] + [fig[1][i] + fig[2][i] for i in range(2)]
+                # [['Hexagon', [194, 144], [28.7, 28.7]], ['Rhombus', [42, 60], [55.8614, 55.8614]], ...]
+                # lay out bbox as (xcen, ycen, w, h), resize bbox parameters with images if yolov3 is used
+                bbox = [p * resize_factor for p in fig[1] + fig[2]]
                 shape = cname_to_id[fig[0]]
-                # lay out bbox as a tuple of 5: (shape, xmin,ymin,xmax,ymax)
+                # lay out bbox as a tuple of 5: (shape, xcen, ycen, w, h)
                 curr_description.append((shape, *bbox))
             new_descriptions.append(curr_description)
         self.descriptions = new_descriptions
@@ -578,5 +579,6 @@ if __name__ == '__main__':
     # result = draw_shapes(choice)
     # result[0].show()
 
-    d = generate(n=1000, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
-    tile(d, 1000).show()
+    d = generate(n=100, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
+
+    tile(d, 100).show()
