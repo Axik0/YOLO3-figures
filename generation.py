@@ -549,7 +549,8 @@ class FiguresDataset(VisionDataset):
             transformed = self.aug(image=self.images[i], bboxes=self.bboxes[i], cidx=self.c_idx[i])
             return transformed['image'], transformed['bboxes'], transformed['cidx']
         except ValueError:
-            print(self.bboxes[i])
+            print('error!', self.bboxes[i])
+            return None
 
     def __len__(self):
         return len(self.images)
