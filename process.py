@@ -1,8 +1,12 @@
+"""actual usage has been moved to jupyter notebook"""
+
 import numpy as np
 import torch
 import torchvision
 import matplotlib.pyplot as plt
 from generation import FiguresDataset, id_to_cname
+
+YOLO_SIZE = 416
 
 
 def show_img(tensor_chw):
@@ -13,40 +17,36 @@ def show_img(tensor_chw):
 
 def pick(element):
     """Visualize an element from the dataset with all bounding boxes and figure labels"""
-    tensor, description = element
+    tensor, bboxes_, labels_ = element
     # read_image outputs uint8 0..255,
     # we transform that to float on the fly but still need uint8 for visualization to work
     tensor = torchvision.transforms.ConvertImageDtype(torch.uint8)(tensor)
-    # [4, 194, 144, 28.7, 28.7]
-    boxes_t, labels = [], []
-    for f in description:
+    bboxes, labels = [], []
+    for _ in range(len(labels_)):
         # lay out bbox (xcen,ycen,w,h) as (xmin,ymin,xmax,ymax)
-        bbox = (f[1] - f[3]/2, f[2] - f[4]/2, f[1] + f[3]/2, f[2] + f[4]/2)
-        boxes_t.append(bbox)
-        labels.append(id_to_cname[f[0]])
-    tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor, boxes=torch.tensor(boxes_t), labels=labels, colors='black')
+        bb, label = bboxes_[_], labels_[_]
+        bbox = list(map(lambda x: YOLO_SIZE * x, (bb[0] - bb[2]/2, bb[1] - bb[3]/2, bb[0] + bb[2]/2, bb[1] + bb[3]/2)))
+        bboxes.append(bbox)
+        labels.append(id_to_cname[label])
+    tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor, boxes=torch.tensor(bboxes), labels=labels, colors='black')
     return tensor_w_boxes
 
 
 def sample(elements, size=9):
-    """Visualize a bunch of from the dataset with all bounding boxes and figure labels"""
+    """Visualize a bunch of items from the dataset with all bounding boxes and figure labels"""
     sample_list = [pick(elements[i]) for i in range(size)]
     show_img(torchvision.utils.make_grid(sample_list, nrow=np.sqrt(size).astype(int)))
 
 
 if __name__ == '__main__':
-    tr = torchvision.transforms.Compose([
-        torchvision.transforms.ConvertImageDtype(torch.float32),
-        torchvision.transforms.Normalize(mean=[0, 0, 0], std=[0.5, 0.5, 0.5]),
-        # torchvision.transforms.ColorJitter(
-        #         brightness=0.5, contrast=0.5,
-        #         saturation=0.5, hue=0.5
-        #     ),
-        torchvision.transforms.Resize(416, antialias=None),
-    ])
+    import albumentations as A
+    from albumentations.pytorch import ToTensorV2
+
+    tr_list = [A.Normalize((0, 0, 0), (0.5, 0.5, 0.5)), A.Resize(416, 416), ToTensorV2()]
+    tr = A.Compose(tr_list, bbox_params=A.BboxParams(format='yolo', label_fields=['cids']))
+
     ds = FiguresDataset(transforms=tr)
     # show_img(pick(ds[0]))
     sample(ds)
-    print(ds[0][0])
+    print(ds[0][2])
 
-##moved to jupyter notebook

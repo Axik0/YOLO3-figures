@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-
 from torchsummary import summary
 
 IMAGE_SIZE = 416
@@ -29,7 +28,7 @@ CFG = [
     "U",
     (128, 1, 1),
     (256, 3, 1),
-    "S",
+    "S",    # 53 more layers, 106 in total
 ]
 
 
@@ -76,7 +75,7 @@ class ScalePrediction(nn.Module):
         )
 
     def forward(self, x):
-        # reshape n permute NCHW --> Nc1c2HW --> Nc1HWc2
+        # reshape & permute NCHW --> Nc1c2HW --> Nc1HWc2
         return (
             self.prediction(x)
             .reshape(x.shape[0], 3, self.num_classes + 5, x.shape[2], x.shape[3])
@@ -97,13 +96,16 @@ class YOLO3(nn.Module):
 
         for lr in self.layers:
             if isinstance(lr, ScalePrediction):
+                # we apply layer to x and extract result but continue the pipeline from that x
                 outputs.append(lr(x))
                 continue
+            # proceed with the next layers
             x = lr(x)
             if isinstance(lr, ResidualBlock) and lr.repeated == 8:
+                # start tracing skip connection after RB
                 route_connections.append(x)
             if isinstance(lr, nn.Upsample):
-                # concatenate channels
+                # concatenate channels after UpSampling with a traced route
                 x = torch.cat([x, route_connections[-1]], dim=1)
                 route_connections.pop()
         return outputs
@@ -124,6 +126,7 @@ class YOLO3(nn.Module):
                 layers.append(ResidualBlock(in_channels, num_repeats=num_repeats))
             elif isinstance(module, str):
                 if module == 'S':
+                    # aka convolutional set, dummy RB followed by CNNB
                     layers.append(ResidualBlock(in_channels, use=False, num_repeats=1))
                     # we extract output and continue from this branch
                     layers.append(CNNBlock(in_channels, in_channels // 2, kernel_size=1))

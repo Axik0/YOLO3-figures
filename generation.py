@@ -28,11 +28,15 @@ import os
 import json
 import inspect
 
+
+from numpy import array
 # I won't use numpy for a task that simple intentionally
 import random
 import statistics
 from math import pi, sin, cos, sqrt
 from itertools import accumulate, product
+
+import torchvision.transforms
 # drawing framework
 from PIL import Image, ImageDraw, ImageColor
 # template class for a dataset (makes our dataset compatible with torchvision)
@@ -59,9 +63,8 @@ def get_data(json_object_path):
     return res
 
 
-# def load_image(image_path):
-#     with open(image_path, 'rb') as p:
-#         return p
+def load_image(image_path):
+    return array(Image.open(image_path, mode='r'))
 
 
 def rand_split(n, k: int, l_bound=0):
@@ -106,13 +109,6 @@ def rand_split(n, k: int, l_bound=0):
     assert len(spaces) == k, f'Result {spaces} has wrong length'
     return spaces
 
-
-# try:
-#     for i in range(10000):
-#         rand_split(256, 5, THR)
-#     print('10K-pass')
-# except AssertionError:
-#     print('function behaves wrong')
 
 def get_centers(n=SIZE, k=PARTS - 2, l_bound=THR, mute=False):
     """convenient function that transforms exact parameters from just spacers"""
@@ -512,7 +508,7 @@ def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
 def load_dataset(root=PATH, data_name=DNAME):
     """requires torchvision import, outputs list of torch tensors (images) and list of their descriptions"""
     data = get_data(json_object_path=os.path.join(root, data_name))
-    images, description = zip(*[(read_image(os.path.join(root, local_path)), data) for local_path, data in data.items()])
+    images, description = zip(*[(load_image(os.path.join(root, local_path)), data) for local_path, data in data.items()])
     print(f'{len(images)} images and their descriptions have been loaded successfully')
     return images, description
 
@@ -528,15 +524,14 @@ class FiguresDataset(VisionDataset):
         super().__init__(root)
         self.images, self.descriptions_ = load_dataset()
         assert len(self.images) == len(self.descriptions_), 'wrong dataset generation, please retry'
-        self.transforms = transforms
+        self.aug = transforms
         new_descriptions = []
-        resize_factor = 416/SIZE if y3 else 1
         for desc in self.descriptions_:
             curr_description = []
             for fig in desc:
                 # [['Hexagon', [194, 144], [28.7, 28.7]], ['Rhombus', [42, 60], [55.8614, 55.8614]], ...]
-                # lay out bbox as (xcen, ycen, w, h), resize bbox parameters with images if yolov3 is used
-                bbox = [p * resize_factor for p in fig[1] + fig[2]]
+                # lay out bbox as (xcen, ycen, w, h) + normalized by images's WH for yolo
+                bbox = list(map(lambda c: c/SIZE, fig[1] + fig[2]))
                 shape = cname_to_id[fig[0]]
                 # lay out bbox as a tuple of 5: (shape, xcen, ycen, w, h)
                 curr_description.append((shape, *bbox))
@@ -544,14 +539,26 @@ class FiguresDataset(VisionDataset):
         self.descriptions = new_descriptions
 
     def __getitem__(self, idx):
-        image = self.transforms(self.images[idx]) if self.transforms else self.images[idx]
-        return image, self.descriptions[idx]
+        if self.aug:
+            # detach shape from bbox parameters
+            labels_, bboxes_ = zip(*map(lambda d: (d[0], d[1:]), self.descriptions[idx]))
+            transformed = self.aug(image=self.images[idx], bboxes=bboxes_, cids=labels_)
+            return transformed['image'], transformed['bboxes'], transformed['cids']
+        else:
+            return self.images[idx], self.descriptions[idx][1:], self.descriptions[idx][0]
 
     def __len__(self):
         return len(self.images)
 
 
 if __name__ == '__main__':
+    # try:
+    #     for i in range(10000):
+    #         rand_split(256, 5, THR)
+    #     print('10K-pass')
+    # except AssertionError:
+    #     print('function behaves wrong')
+
     # box1 = BBox((100, 100), (40, 10))
     # print(box1)
     # box2 = BBox((70, 100), (20, 10))
@@ -580,5 +587,4 @@ if __name__ == '__main__':
     # result[0].show()
 
     d = generate(n=100, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
-
     tile(d, 100).show()
