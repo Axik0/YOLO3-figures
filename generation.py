@@ -41,7 +41,6 @@ import torchvision.transforms
 from PIL import Image, ImageDraw, ImageColor
 # template class for a dataset (makes our dataset compatible with torchvision)
 from torchvision.datasets import VisionDataset
-from torchvision.io import read_image
 
 
 RSEED = 42
@@ -49,6 +48,7 @@ PATH = './'
 FNAME = 'pics'
 DNAME = 'data.json'
 
+EPS = 1E-4
 
 SIZE = 256
 # 25++ because inscribed objects might be smaller
@@ -502,16 +502,33 @@ def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
     if store:
         with open(json_path, 'w') as f:
             json.dump(data, f)
-    print(f'{len(data)} images have been created {"and saved" if store else ""} successfully')
+    print(f'{len(data)} images have been created{" and saved" if store else ""} successfully')
     return img_to_show
 
 
-def load_dataset(root=PATH, data_name=DNAME):
-    """requires torchvision import, outputs list of torch tensors (images) and list of their descriptions"""
+def load_dataset(transforms, root=PATH, data_name=DNAME):
+    """requires at least ToTensorV2 transformation, outputs 3 lists - images, bounding boxes, figure indices"""
     data = get_data(json_object_path=os.path.join(root, data_name))
-    images, description = zip(*[(load_image(os.path.join(root, local_path)), data) for local_path, data in data.items()])
-    print(f'{len(images)} images and their descriptions have been loaded successfully')
-    return images, description
+    tensors, bboxes, labels = [], [], []
+
+    for image, desc in [(load_image(os.path.join(root, local_path)), data) for local_path, data in data.items()]:
+        c_bbxs, c_idx = [], []
+        # [['Hexagon', [194, 144], [28.7, 28.7]], ['Rhombus', [42, 60], [55.8614, 55.8614]], ...]
+        for fig in desc:
+            # lay out bbox as (xcen, ycen, w, h) + normalized by global WH for yolo
+            bbox = list(map(lambda c: c / SIZE, fig[1] + fig[2]))
+            # we might encounter floating point errors in albumentations, that lead to vmin, vmax not in [0,1]
+            if bbox[0] - bbox[2]/2 < EPS or bbox[0] + bbox[2]/2 > 1 - EPS:
+                bbox[2] = 2 * min(bbox[0], 1 - bbox[0])
+            elif bbox[1] - bbox[3]/2 < EPS or bbox[1] + bbox[3]/2 > 1 - EPS:
+                bbox[3] = 2 * min(bbox[1], 1 - bbox[1])
+            c_bbxs.append(bbox)
+            c_idx.append(cname_to_id[fig[0]])
+        tensors.append(image)
+        bboxes.append(c_bbxs)
+        labels.append(c_idx)
+    print(f'{len(labels)} images, boxes, class indices have been loaded successfully')
+    return tensors, bboxes, labels
 
 
 id_to_class = [Circle, Rhombus, Rectangle, Triangle, Polygon]
@@ -521,32 +538,18 @@ cname_to_id = {cn: i for i, cn in enumerate(id_to_cname)}
 
 
 class FiguresDataset(VisionDataset):
-    def __init__(self, root=PATH, transforms=None, y3=True):
+    def __init__(self, transforms, root=PATH):
         super().__init__(root)
-        self.images, self.descriptions_ = load_dataset()
-        assert len(self.images) == len(self.descriptions_), 'wrong dataset generation, please retry'
         self.aug = transforms
-        new_descriptions = []
-        for desc in self.descriptions_:
-            curr_description = []
-            for fig in desc:
-                # [['Hexagon', [194, 144], [28.7, 28.7]], ['Rhombus', [42, 60], [55.8614, 55.8614]], ...]
-                # lay out bbox as (xcen, ycen, w, h) + normalized by images's WH for yolo
-                bbox = list(map(lambda c: c/SIZE, fig[1] + fig[2]))
-                shape = cname_to_id[fig[0]]
-                # lay out bbox as a tuple of 5: (shape, xcen, ycen, w, h)
-                curr_description.append((shape, *bbox))
-            new_descriptions.append(curr_description)
-        self.descriptions = new_descriptions
+        self.images, self.bboxes, self.c_idx = load_dataset(transforms=self.aug)
+        assert len(self.images) == len(self.bboxes), 'wrong dataset generation, please retry'
 
-    def __getitem__(self, idx):
-        if self.aug:
-            # detach shape from bbox parameters
-            labels_, bboxes_ = zip(*map(lambda d: (d[0], d[1:]), self.descriptions[idx]))
-            transformed = self.aug(image=self.images[idx], bboxes=bboxes_, cids=labels_)
-            return transformed['image'], transformed['bboxes'], transformed['cids']
-        else:
-            return self.images[idx], self.descriptions[idx][1:], self.descriptions[idx][0]
+    def __getitem__(self, i):
+        try:
+            transformed = self.aug(image=self.images[i], bboxes=self.bboxes[i], cidx=self.c_idx[i])
+            return transformed['image'], transformed['bboxes'], transformed['cidx']
+        except ValueError:
+            print(self.bboxes[i])
 
     def __len__(self):
         return len(self.images)

@@ -43,7 +43,7 @@ if __name__ == '__main__':
     from albumentations.pytorch import ToTensorV2
 
     tr_list = [A.Normalize((0, 0, 0), (0.5, 0.5, 0.5)), A.Resize(416, 416), ToTensorV2()]
-    tr = A.Compose(tr_list, bbox_params=A.BboxParams(format='yolo', label_fields=['cids']))
+    tr = A.Compose(tr_list, bbox_params=A.BboxParams(format='yolo', label_fields=['cidx']))
 
     ds = FiguresDataset(transforms=tr)
     # show_img(pick(ds[0]))
