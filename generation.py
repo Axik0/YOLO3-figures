@@ -28,13 +28,12 @@ import os
 import json
 import inspect
 
-
 from numpy import array
 # I won't use numpy for a task that simple intentionally
 import random
 import statistics
 from math import pi, sin, cos, sqrt
-from itertools import accumulate, product
+from itertools import accumulate, product, chain
 
 import torchvision.transforms
 # drawing framework
@@ -42,13 +41,13 @@ from PIL import Image, ImageDraw, ImageColor
 # template class for a dataset (makes our dataset compatible with torchvision)
 from torchvision.datasets import VisionDataset
 
-
 RSEED = 42
 PATH = './'
 FNAME = 'pics'
 DNAME = 'data.json'
+TNAME = 'temp.json'
 
-EPS = 1E-4
+EPS = 1E-10
 
 SIZE = 256
 # 25++ because inscribed objects might be smaller
@@ -507,26 +506,43 @@ def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
 
 
 def load_dataset(transforms, root=PATH, data_name=DNAME):
-    """requires at least ToTensorV2 transformation, outputs 3 lists - images, bounding boxes, figure indices"""
+    """requires at least ToTensorV2 transformation, outputs 3 lists - images, bounding boxes, figure indices
+    for some reason, applying those transformations is memory inefficient,"""
     data = get_data(json_object_path=os.path.join(root, data_name))
-    tensors, bboxes, labels = [], [], []
+    loaded = [(load_image(os.path.join(root, local_path)), data) for local_path, data in data.items()]
 
-    for image, desc in [(load_image(os.path.join(root, local_path)), data) for local_path, data in data.items()]:
-        c_bbxs, c_idx = [], []
-        # [['Hexagon', [194, 144], [28.7, 28.7]], ['Rhombus', [42, 60], [55.8614, 55.8614]], ...]
-        for fig in desc:
-            # lay out bbox as (xcen, ycen, w, h) + normalized by global WH for yolo
-            bbox = list(map(lambda c: c / SIZE, fig[1] + fig[2]))
-            # we might encounter floating point errors in albumentations, that lead to vmin, vmax not in [0,1]
-            if bbox[0] - bbox[2]/2 < EPS or bbox[0] + bbox[2]/2 > 1 - EPS:
-                bbox[2] = 2 * min(bbox[0], 1 - bbox[0])
-            elif bbox[1] - bbox[3]/2 < EPS or bbox[1] + bbox[3]/2 > 1 - EPS:
-                bbox[3] = 2 * min(bbox[1], 1 - bbox[1])
-            c_bbxs.append(bbox)
-            c_idx.append(cname_to_id[fig[0]])
-        tensors.append(image)
-        bboxes.append(c_bbxs)
-        labels.append(c_idx)
+    def semi_process(loaded_data, split=(None, None, None)):
+        """I want to apply transforms in a single pass, that's memory inefficient thus requires batching"""
+        tensors_l, bboxes_l, labels_l = [], [], []
+        for image, desc in loaded_data[slice(*split)]:
+            c_bbxs, c_idx = [], []
+            # [['Hexagon', [194, 144], [28.7, 28.7]], ['Rhombus', [42, 60], [55.8614, 55.8614]], ...]
+            for fig in desc:
+                # lay out bbox as (xcen, ycen, w, h) + normalized by global WH for yolo
+                bbox = list(map(lambda c: c / SIZE, fig[1] + fig[2]))
+                # we WILL encounter FP round-off errors 'thanks to' albumentations, may lead to vmin, vmax not in [0,1]
+                if bbox[0] - bbox[2] / 2 < EPS or bbox[0] + bbox[2] / 2 > 1 - EPS:
+                    bbox[2] = 2 * min(bbox[0], 1 - bbox[0])
+                elif bbox[1] - bbox[3] / 2 < EPS or bbox[1] + bbox[3] / 2 > 1 - EPS:
+                    bbox[3] = 2 * min(bbox[1], 1 - bbox[1])
+                c_bbxs.append(bbox)
+                c_idx.append(cname_to_id[fig[0]])
+            tensors_l.append(image)
+            bboxes_l.append(c_bbxs)
+            labels_l.append(c_idx)
+            # requires more than 8GB of RAM
+            # try:
+            #     transformed = transforms(image=image, bboxes=c_bbxs, cidx=c_idx)
+            # except ValueError:
+            #     print('error!', c_bbxs)
+            #     break
+            # tensors_l.append(transformed['image'])
+            # bboxes_l.append(transformed['bboxes'])
+            # labels_l.append(transformed['cidx'])
+        return tensors_l, bboxes_l, labels_l
+    # chain nested lists
+    # tensors, bboxes, labels = chain(semi_process(loaded, (None, len(loaded)//2)), semi_process(loaded, (len(loaded)//2, None)))
+    tensors, bboxes, labels = semi_process(loaded)
     print(f'{len(labels)} images, boxes, class indices have been loaded successfully')
     return tensors, bboxes, labels
 
