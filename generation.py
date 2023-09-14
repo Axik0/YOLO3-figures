@@ -47,6 +47,14 @@ DNAME = 'data.json'
 TNAME = 'temp.json'
 
 EPS = 1E-10
+YOLO_SIZE = 416
+# 3 feature maps at 3 different scales based on YOLOv3 paper
+GRID_SIZES = (YOLO_SIZE // 32, YOLO_SIZE // 16, YOLO_SIZE // 8)
+ANCHORS = (
+    ((0.28, 0.22), (0.38, 0.48), (0.9, 0.78)),
+    ((0.07, 0.15), (0.15, 0.11), (0.14, 0.29)),
+    ((0.02, 0.03), (0.04, 0.07), (0.08, 0.06)),
+)
 
 SIZE = 256
 # 25++ because inscribed objects might be smaller
@@ -582,17 +590,17 @@ def iou(base_box, list_of_boxes):
 
 
 class FiguresDataset(VisionDataset):
-    def __init__(self, transforms, anchors, gs, iou_threshold=0.5, root=PATH):
+    def __init__(self, transforms, iou_threshold=0.5, root=PATH, anchors=ANCHORS, gs=GRID_SIZES):
         super().__init__(root)
         self.iou_thr = iou_threshold
-        # each of 3 scales has grid_size and set of 3 anchors
-        self.grid_sizes = gs
         assert transforms is True, 'list of transforms is empty, please include ToTensorV2 and Resize at least'
         self.aug = transforms
-        # anchors are set by just (relative) width & height, nested list 3*3
+        # anchors are set by just (relative) width & height, nested tuple 3*3
         self.anchors = anchors
-        # total amount of anchors for all scales
+        # number of anchors at each scale
         self.nan_per_scale = len(anchors)
+        # each of 3 scales has grid_size and set of 3 anchors
+        self.grid_sizes = gs
         assert self.nan_per_scale == len(self.grid_sizes), "#anchors doesn't coincide with #grid sizes"
         self.images, self.bboxes, self.c_idx = load_dataset(transforms=self.aug)
         assert len(self.images) == len(self.bboxes), 'wrong dataset generation, please retry'
@@ -614,7 +622,7 @@ class FiguresDataset(VisionDataset):
         return len(self.images)
 
     def build_targets(self, bbox_list):
-        """exclusively assigns 1 cell, 1 anchor (in that cell) per each bounding box at all 3 scales (if possible)"""
+        """exclusively assigns 1 cell, 1 anchor (in that cell) to each bounding box at all 3 scales (if possible)"""
         from torch import zeros
         targets = []
         for ci, bb in zip(self.c_idx, bbox_list):
@@ -691,10 +699,10 @@ if __name__ == '__main__':
     # result = draw_shapes(choice)
     # result[0].show()
 
-    # d = generate(n=1000, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
-    # tile(d, 1000).show()
+    d = generate(n=1000, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
+    tile(d, 1000).show()
 
     # box = (0.4, 0.4, 0.4, 0.2)  # xywh
-    # boxes = [(0.4, 0.5, 0.3, 0.1), (0.2, 0.4, 0.1, 0.3), (0.6, 0.5, 0.4, 0.2)]
+    # boxes = [(0.4, 0.4, 0.34, 0.19), (0.2, 0.4, 0.1, 0.3), (0.6, 0.5, 0.4, 0.2)]
     # res = iou(box, boxes)
     # print(res, sorted(range(len(res)), reverse=True, key=lambda _: res[_]))
