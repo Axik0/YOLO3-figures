@@ -567,7 +567,7 @@ def iou(base_box, list_of_boxes):
     # represent boxes with their minmax vertices + calculate an area in a single pass
     vr = list(map(lambda bb: (*vertex_repr(bb), bb[2] * bb[3]), list_of_boxes + [base_box]))
     vmi_0, vma_0, area_0 = vr.pop()
-    for b in list_of_boxes:
+    for b in vr:
         vmi_b, vma_b, area_b = b
         # get aoi, nearest max vertex - farthest min vertex
         dx = min(vma_0[0], vma_b[0]) - max(vmi_0[0], vmi_b[0])
@@ -582,7 +582,7 @@ def iou(base_box, list_of_boxes):
 
 
 class FiguresDataset(VisionDataset):
-    def __init__(self, transforms, root=PATH, iou_threshold=0.5, anchors=ANCHORS, gs=GRID_SIZES):
+    def __init__(self, transforms, anchors, gs, iou_threshold=0.5, root=PATH):
         super().__init__(root)
         self.iou_thr = iou_threshold
         # each of 3 scales has grid_size and set of 3 anchors
@@ -691,5 +691,10 @@ if __name__ == '__main__':
     # result = draw_shapes(choice)
     # result[0].show()
 
-    d = generate(n=1000, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
-    tile(d, 1000).show()
+    # d = generate(n=1000, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
+    # tile(d, 1000).show()
+
+    # box = (0.4, 0.4, 0.4, 0.2)  # xywh
+    # boxes = [(0.4, 0.5, 0.3, 0.1), (0.2, 0.4, 0.1, 0.3), (0.6, 0.5, 0.4, 0.2)]
+    # res = iou(box, boxes)
+    # print(res, sorted(range(len(res)), reverse=True, key=lambda _: res[_]))
