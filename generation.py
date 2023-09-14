@@ -35,7 +35,6 @@ import statistics
 from math import pi, sin, cos, sqrt
 from itertools import accumulate, product, chain
 
-import torchvision.transforms
 # drawing framework
 from PIL import Image, ImageDraw, ImageColor
 # template class for a dataset (makes our dataset compatible with torchvision)
@@ -553,41 +552,56 @@ id_to_class = [Circle, Rhombus, Rectangle, Triangle, Polygon]
 id_to_cname = [c((100, 100), (50, 50)).shape for c in id_to_class]
 cname_to_id = {cn: i for i, cn in enumerate(id_to_cname)}
 
-import torch
-
 
 class FiguresDataset(VisionDataset):
-    def __init__(self, iou_threshold, transforms, anchors, gs, root=PATH):
+    def __init__(self, transforms, root=PATH, iou_threshold=0.5, anchors=ANCHORS, gs=GRID_SIZES):
         super().__init__(root)
-
         self.iou_thr = iou_threshold
-        self.aug = transforms
-        self.images, self.bboxes, self.c_idx = load_dataset(transforms=self.aug)
-        assert len(self.images) == len(self.bboxes), 'wrong dataset generation, please retry'
         # each of 3 scales has grid_size and set of 3 anchors
-        assert len(gs) > 0, 'specify grid sizes'
         self.grid_sizes = gs
-        # those anchors are set by just (relative) width & height
+        assert transforms is True, 'list of transforms is empty, please include ToTensorV2 and Resize at least'
+        self.aug = transforms
+        # anchors are set by just (relative) width & height, nested list 3*3
         self.anchors = anchors
         # total amount of anchors for all scales
-        self.num_anchors = len(anchors)
-        self.nan_per_scale = self.num_anchors/len(self.grid_sizes)
-        # reserve 3*s*s*(presence(0/1),bbox(4),class_id) dummies for 3 scales
-        target_dummies = [torch.zeros((self.nan_per_scale, s, s, 6)) for s in self.grid_sizes]
+        self.nan_per_scale = len(anchors)
+        assert self.nan_per_scale == len(self.grid_sizes), "#anchors doesn't coincide with #grid sizes"
+        self.images, self.bboxes, self.c_idx = load_dataset(transforms=self.aug)
+        assert len(self.images) == len(self.bboxes), 'wrong dataset generation, please retry'
+        # establish 1:1 correspondence (at each scale): ground truth bounding box <-> anchor box and cell as target
+        # let's keep track of bboxes that have never been mapped (on all 3 scales) for further investigation purposes
+        self.unused_bboxes = []
+        self.targets = [self.build_targets(bb_list) for bb_list in self.bboxes]  # it's 1:1 within an image only
+        assert len(self.targets) == len(self.bboxes), 'wrong targets, check their builder method'
 
-        # establish 1:1 correspondence (at each scale): ground truth bounding box <-> anchor box and cell
-        for ci, bb in zip(self.c_idx, self.bboxes):
+    def __getitem__(self, i):
+        try:
+            transformed = self.aug(image=self.images[i], bboxes=self.bboxes[i], cidx=self.c_idx[i])
+            return transformed['image'], transformed['bboxes'], transformed['cidx']
+        except ValueError:
+            print('error!', self.bboxes[i])
+            return None
+
+    def __len__(self):
+        return len(self.images)
+
+    def build_targets(self, bbox_list):
+        """exclusively assigns 1 cell, 1 anchor (in that cell) per each bounding box at all 3 scales (if possible)"""
+        from torch import zeros
+        targets = []
+        for ci, bb in zip(self.c_idx, bbox_list):
+            found = None
             # extract current bounding box's (relative to image!) coordinates
             x, y, w, h = bb
-            for al, gs, td in zip(self.anchors, self.grid_sizes, target_dummies):
+            # prepare 3*s*s*(presence(0/1),bbox(4),class_id) torch tensor dummies for all scales
+            target_dummies = [zeros((self.nan_per_scale, s, s, 6)) for s in self.grid_sizes]
+            for i, al, gs, td in enumerate(zip(self.anchors, self.grid_sizes, target_dummies)):
                 found = False
                 # cell choice - put current s-grid onto original image, take a cell w/ bb center inside (if not taken)
                 cx, cy = int(gs * x), int(gs * y)  # cell ~ top left corner relative (to grid) coordinates
-                # anchor choice - 'best' of all anchors at each step
-                #an_top = [2, 1, 0]
+                # anchor choice - 'best' (by IoU) of all free anchors at each step, suppress the rest w/ same role (NMS)
 
-                # NMS - take best (if unused), suppress rest (if free and detect this bbox quite good)
-                for ai in an_top:
+                for ai in an_top: #an_top = [2, 1, 0]
                     # check if the anchor at this cell is already used (=mapped to another bbox)
                     used = td[ai, cx, cy, 0]
                     if not used:
@@ -599,22 +613,18 @@ class FiguresDataset(VisionDataset):
                             td[ai, cx, cy, 1:5] = [shift_cx, shift_cy, width_c, height_c]  # attach bb (at this scale)
                             td[ai, cx, cy, 6] = ci  # attach class id label
                             found = True
+                        # NMS -- taken best, suppress rest (if free and detect this bbox quite good)
                         elif found and iou(ai) > self.iou_thr:
                             # best anchor is assigned, get rid of rest (only the ones that also detect this bbox ok!)
                             td[ai, cx, cy, 0] = -1  # ignore, i.e. they're NOT available for future (other bboxes)
-                # NB anchors at cell might be all used up (by previous bboxes) => bbox is NOT detected on the scale gs
+                # replace target_dummy with td (even if td hasn't changed, i.e. all zeros)
+                target_dummies[i] = td
+            targets.append(target_dummies)
+            # NB all anchors at cell might have been used up(by previous bboxes) => bbox is NOT detected on the scale gs
+            if not found:  # found=None means that for-cycle has never started, that's impossible but nevertheless
+                self.unused_bboxes.append(bb)
+        return targets
 
-    def __getitem__(self, i):
-
-        try:
-            transformed = self.aug(image=self.images[i], bboxes=self.bboxes[i], cidx=self.c_idx[i])
-            return transformed['image'], transformed['bboxes'], transformed['cidx']
-        except ValueError:
-            print('error!', self.bboxes[i])
-            return None
-
-    def __len__(self):
-        return len(self.images)
 
 
 if __name__ == '__main__':
