@@ -655,7 +655,7 @@ class FiguresDataset(VisionDataset):
                             shift_cx, shift_cy = gs * x - cx, gs * y - cy  # center is that shifted from tlc of the cell
                             td[ai, cx, cy, 0] = 1  # occupy
                             td[ai, cx, cy, 1:5] = tensor([shift_cx, shift_cy, width_c, height_c])  # attach bb (1 scale)
-                            td[ai, cx, cy, 5] = ci  # attach class id label
+                            td[ai, cx, cy, 5] = ci  # attach class id label, ensure its integer value
                             found = True
                         # NMS -- taken best, suppress rest (if free and detect this bbox quite good)
                         elif found and anchor_ious[ai] > self.iou_thr:
