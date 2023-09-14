@@ -507,7 +507,7 @@ def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
 
 def load_dataset(transforms, root=PATH, data_name=DNAME):
     """requires at least ToTensorV2 transformation, outputs 3 lists - images, bounding boxes, figure indices
-    for some reason, applying those transformations is memory inefficient,"""
+    , applying those transformations is memory inefficient, can't be solved with 8Gb RAM only"""
     data = get_data(json_object_path=os.path.join(root, data_name))
     loaded = [(load_image(os.path.join(root, local_path)), data) for local_path, data in data.items()]
 
@@ -540,6 +540,7 @@ def load_dataset(transforms, root=PATH, data_name=DNAME):
             # bboxes_l.append(transformed['bboxes'])
             # labels_l.append(transformed['cidx'])
         return tensors_l, bboxes_l, labels_l
+
     # chain nested lists
     # tensors, bboxes, labels = chain(semi_process(loaded, (None, len(loaded)//2)), semi_process(loaded, (len(loaded)//2, None)))
     tensors, bboxes, labels = semi_process(loaded)
@@ -552,15 +553,59 @@ id_to_class = [Circle, Rhombus, Rectangle, Triangle, Polygon]
 id_to_cname = [c((100, 100), (50, 50)).shape for c in id_to_class]
 cname_to_id = {cn: i for i, cn in enumerate(id_to_cname)}
 
+import torch
+
 
 class FiguresDataset(VisionDataset):
-    def __init__(self, transforms, root=PATH):
+    def __init__(self, iou_threshold, transforms, anchors, gs, root=PATH):
         super().__init__(root)
+
+        self.iou_thr = iou_threshold
         self.aug = transforms
         self.images, self.bboxes, self.c_idx = load_dataset(transforms=self.aug)
         assert len(self.images) == len(self.bboxes), 'wrong dataset generation, please retry'
+        # each of 3 scales has grid_size and set of 3 anchors
+        assert len(gs) > 0, 'specify grid sizes'
+        self.grid_sizes = gs
+        # those anchors are set by just (relative) width & height
+        self.anchors = anchors
+        # total amount of anchors for all scales
+        self.num_anchors = len(anchors)
+        self.nan_per_scale = self.num_anchors/len(self.grid_sizes)
+        # reserve 3*s*s*(presence(0/1),bbox(4),class_id) dummies for 3 scales
+        target_dummies = [torch.zeros((self.nan_per_scale, s, s, 6)) for s in self.grid_sizes]
+
+        # establish 1:1 correspondence (at each scale): ground truth bounding box <-> anchor box and cell
+        for ci, bb in zip(self.c_idx, self.bboxes):
+            # extract current bounding box's (relative to image!) coordinates
+            x, y, w, h = bb
+            for al, gs, td in zip(self.anchors, self.grid_sizes, target_dummies):
+                found = False
+                # cell choice - put current s-grid onto original image, take a cell w/ bb center inside (if not taken)
+                cx, cy = int(gs * x), int(gs * y)  # cell ~ top left corner relative (to grid) coordinates
+                # anchor choice - 'best' of all anchors at each step
+                #an_top = [2, 1, 0]
+
+                # NMS - take best (if unused), suppress rest (if free and detect this bbox quite good)
+                for ai in an_top:
+                    # check if the anchor at this cell is already used (=mapped to another bbox)
+                    used = td[ai, cx, cy, 0]
+                    if not used:
+                        if not found:
+                            # measure bbox in current grid's cells (new coordinates are relative to the cell)
+                            width_c, height_c = gs * w, gs * h  # bbox covers that many cells like this one
+                            shift_cx, shift_cy = gs * x - cx, gs * y - cy  # center is that shifted from tlc of the cell
+                            td[ai, cx, cy, 0] = 1  # occupy
+                            td[ai, cx, cy, 1:5] = [shift_cx, shift_cy, width_c, height_c]  # attach bb (at this scale)
+                            td[ai, cx, cy, 6] = ci  # attach class id label
+                            found = True
+                        elif found and iou(ai) > self.iou_thr:
+                            # best anchor is assigned, get rid of rest (only the ones that also detect this bbox ok!)
+                            td[ai, cx, cy, 0] = -1  # ignore, i.e. they're NOT available for future (other bboxes)
+                # NB anchors at cell might be all used up (by previous bboxes) => bbox is NOT detected on the scale gs
 
     def __getitem__(self, i):
+
         try:
             transformed = self.aug(image=self.images[i], bboxes=self.bboxes[i], cidx=self.c_idx[i])
             return transformed['image'], transformed['bboxes'], transformed['cidx']
