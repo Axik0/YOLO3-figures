@@ -50,11 +50,11 @@ EPS = 1E-10
 YOLO_SIZE = 416
 # 3 feature maps at 3 different scales based on YOLOv3 paper
 GRID_SIZES = (YOLO_SIZE // 32, YOLO_SIZE // 16, YOLO_SIZE // 8)
-ANCHORS = (
+ANCHORS = [
     ((0.28, 0.22), (0.38, 0.48), (0.9, 0.78)),
     ((0.07, 0.15), (0.15, 0.11), (0.14, 0.29)),
     ((0.02, 0.03), (0.04, 0.07), (0.08, 0.06)),
-)
+]
 
 SIZE = 256
 # 25++ because inscribed objects might be smaller
@@ -593,7 +593,6 @@ class FiguresDataset(VisionDataset):
     def __init__(self, transforms, iou_threshold=0.5, root=PATH, anchors=ANCHORS, gs=GRID_SIZES):
         super().__init__(root)
         self.iou_thr = iou_threshold
-        assert transforms is True, 'list of transforms is empty, please include ToTensorV2 and Resize at least'
         self.aug = transforms
         # anchors are set by just (relative) width & height, nested tuple 3*3
         self.anchors = anchors
@@ -631,7 +630,7 @@ class FiguresDataset(VisionDataset):
             x, y, w, h = bb
             # prepare 3*s*s*(presence(0/1),bbox(4),class_id) torch tensor dummies for all scales
             target_dummies = [zeros((self.nan_per_scale, s, s, 6)) for s in self.grid_sizes]
-            for i, al, gs, td in enumerate(zip(self.anchors, self.grid_sizes, target_dummies)):
+            for i, (al, gs, td) in enumerate(zip(self.anchors, self.grid_sizes, target_dummies)):
                 found = False
                 # cell choice - put current s-grid onto original image, take a cell w/ bb center inside (if not taken)
                 cx, cy = int(gs * x), int(gs * y)  # cell ~ top left corner relative (to grid) coordinates
