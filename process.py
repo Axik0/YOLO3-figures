@@ -17,7 +17,7 @@ def show_img(tensor_chw):
 
 def pick(element):
     """Visualize an element from the dataset with all bounding boxes and figure labels"""
-    tensor, bboxes_, labels_ = element
+    tensor, bboxes_, labels_ = element[:3] # to comply with target at 4-th position
     # read_image outputs uint8 0..255,
     # we transform that to float on the fly but still need uint8 for visualization to work
     tensor = torchvision.transforms.ConvertImageDtype(torch.uint8)(tensor)

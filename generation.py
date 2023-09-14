@@ -27,6 +27,7 @@ triangle class sometimes still yields triangles too thin
 import os
 import json
 import inspect
+import sys
 
 from numpy import array
 # I won't use numpy for a task that simple intentionally
@@ -50,11 +51,11 @@ EPS = 1E-10
 YOLO_SIZE = 416
 # 3 feature maps at 3 different scales based on YOLOv3 paper
 GRID_SIZES = (YOLO_SIZE // 32, YOLO_SIZE // 16, YOLO_SIZE // 8)
-ANCHORS = [
+ANCHORS = (
     ((0.28, 0.22), (0.38, 0.48), (0.9, 0.78)),
     ((0.07, 0.15), (0.15, 0.11), (0.14, 0.29)),
     ((0.02, 0.03), (0.04, 0.07), (0.08, 0.06)),
-]
+)
 
 SIZE = 256
 # 25++ because inscribed objects might be smaller
@@ -606,13 +607,18 @@ class FiguresDataset(VisionDataset):
         # establish 1:1 correspondence (at each scale): ground truth bounding box <-> anchor box and cell as target
         # let's keep track of bboxes that have never been mapped (on all 3 scales) for further investigation purposes
         self.unused_bboxes = []
-        self.targets = [self.build_targets(bb_list) for bb_list in self.bboxes]  # it's 1:1 within an image only!!!
-        assert len(self.targets) == len(self.bboxes), 'wrong targets, check their builder method'
+        # self.targets = [self.build_targets(*p) for p in zip(self.bboxes, self.c_idx)]  # it's 1:1 within an image only!!
+        # assert len(self.targets) == len(self.bboxes), 'wrong targets, check their builder method'
+        # print(f'{len(self.targets)} targets at {len(self.grid_sizes)} scales have been created, '
+        #       f'{len(self.unused_bboxes)} bounding boxes wasted')
+        # self.mem_usage = (sys.getsizeof(self.images) // 2 ** 20, sys.getsizeof(self.targets) // 2 ** 20)
+        # print(f"RAM usage images{self.mem_usage[0]} MB, targets{self.mem_usage[1]} MB")
 
     def __getitem__(self, i):
         try:
             transformed = self.aug(image=self.images[i], bboxes=self.bboxes[i], cidx=self.c_idx[i])
-            return transformed['image'], transformed['bboxes'], transformed['cidx']
+            targets = self.build_targets(transformed['bboxes'], transformed['cidx'])
+            return transformed['image'], transformed['bboxes'], transformed['cidx'], targets
         except ValueError:
             print('error!', self.bboxes[i])
             return None
@@ -620,11 +626,11 @@ class FiguresDataset(VisionDataset):
     def __len__(self):
         return len(self.images)
 
-    def build_targets(self, bbox_list):
+    def build_targets(self, bbox_list, label_list):
         """exclusively assigns 1 cell, 1 anchor (in that cell) to each bounding box at all 3 scales (if possible)"""
-        from torch import zeros
+        from torch import zeros, tensor
         targets = []
-        for ci, bb in zip(self.c_idx, bbox_list):
+        for bb, ci in zip(bbox_list, label_list):
             found = None
             # extract current bounding box's (relative to image!) coordinates
             x, y, w, h = bb
@@ -632,10 +638,11 @@ class FiguresDataset(VisionDataset):
             target_dummies = [zeros((self.nan_per_scale, s, s, 6)) for s in self.grid_sizes]
             for i, (al, gs, td) in enumerate(zip(self.anchors, self.grid_sizes, target_dummies)):
                 found = False
+                al_w_centers = [(x + a[0]/2, y + a[1]/2, *a)for a in al]
                 # cell choice - put current s-grid onto original image, take a cell w/ bb center inside (if not taken)
                 cx, cy = int(gs * x), int(gs * y)  # cell ~ top left corner relative (to grid) coordinates
                 # anchor choice - 'best' (by IoU) of all free anchors at each step, suppress the rest w/ same role (NMS)
-                anchor_ious = iou(base_box=bb, list_of_boxes=al)
+                anchor_ious = iou(base_box=bb, list_of_boxes=al_w_centers)
                 # sort in descending manner and get sorting indices
                 an_top = sorted(range(len(anchor_ious)), reverse=True, key=lambda _: anchor_ious[_])
                 for ai in an_top:  # an_top = [2, 1, 0]
@@ -647,8 +654,8 @@ class FiguresDataset(VisionDataset):
                             width_c, height_c = gs * w, gs * h  # bbox covers that many cells like this one
                             shift_cx, shift_cy = gs * x - cx, gs * y - cy  # center is that shifted from tlc of the cell
                             td[ai, cx, cy, 0] = 1  # occupy
-                            td[ai, cx, cy, 1:5] = [shift_cx, shift_cy, width_c, height_c]  # attach bb (at this scale)
-                            td[ai, cx, cy, 6] = ci  # attach class id label
+                            td[ai, cx, cy, 1:5] = tensor([shift_cx, shift_cy, width_c, height_c])  # attach bb (1 scale)
+                            td[ai, cx, cy, 5] = ci  # attach class id label
                             found = True
                         # NMS -- taken best, suppress rest (if free and detect this bbox quite good)
                         elif found and anchor_ious[ai] > self.iou_thr:
