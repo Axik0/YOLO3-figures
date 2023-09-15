@@ -588,8 +588,3 @@ if __name__ == '__main__':
 
     d = generate(n=1000, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
     tile(d, 1000).show()
-
-    # box = (0.4, 0.4, 0.4, 0.2)  # xywh
-    # boxes = [(0.4, 0.4, 0.34, 0.19), (0.2, 0.4, 0.1, 0.3), (0.6, 0.5, 0.4, 0.2)]
-    # res = iou(box, boxes)
-    # print(res, sorted(range(len(res)), reverse=True, key=lambda _: res[_]))

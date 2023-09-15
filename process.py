@@ -2,11 +2,12 @@
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torchvision
 # template class for a dataset (makes our dataset compatible with torchvision)
 from torchvision.datasets import VisionDataset
 import matplotlib.pyplot as plt
-from generation import load_dataset, id_to_cname, PATH
+from generation import load_dataset, id_to_cname, PATH, EPS
 
 
 YOLO_SIZE = 416
@@ -74,6 +75,23 @@ def iou(base_box, list_of_boxes):
         iou_0b = aoi_0b/aou_0b
         ious.append(iou_0b)
     return ious
+
+
+def iou_pairwise(tensor_1, tensor_2):
+    """vectorized pairwise iou computation
+    tensors must have same shape & last dimension = 4 (describes a box)"""
+    assert tensor_1.shape == tensor_2.shape, "wrong input tensors, shape doesn't match"
+    vmi_1, vma_1 = tensor_1[..., 0:2] - 0.5 * tensor_1[..., 2:4], tensor_1[..., 0:2] + 0.5 * tensor_1[..., 2:4]
+    vmi_2, vma_2 = tensor_2[..., 0:2] - 0.5 * tensor_2[..., 2:4], tensor_2[..., 0:2] + 0.5 * tensor_2[..., 2:4]
+    area_1, area_2 = tensor_1[..., 2:3] * tensor_1[..., 3:4], tensor_2[..., 2:3] * tensor_2[..., 3:4]
+    # get aoi, nearest max vertex - farthest min vertex, elementwise min max in torch
+    dx = torch.minimum(vma_1[..., 0:1], vma_2[..., 0:1]) - torch.maximum(vmi_1[..., 0:1], vmi_2[..., 0:1])
+    dy = torch.minimum(vma_1[..., 1:], vma_2[..., 1:]) - torch.maximum(vmi_1[..., 1:], vmi_2[..., 1:])
+    aoi = dx * dy
+    dx_n_dy_mask = dx + dy == 0 or area_1 + area_2 == 0  # just in case, not to get zero-division
+    aoi[dx_n_dy_mask] = 0  # mask out aoi
+    aou = area_1 + area_2 - aoi
+    return aoi/aou
 
 
 class FiguresDataset(VisionDataset):
@@ -155,6 +173,48 @@ class FiguresDataset(VisionDataset):
         return targets
 
 
+class YOLOLoss(nn.Module):
+    def __init__(self):
+        """combined regressor/classifier loss"""
+        super().__init__()
+        self.mse = nn.MSELoss()  # for regression - box predictions
+        self.bce = nn.BCEWithLogitsLoss()  # object presence/absence
+        self.ent = nn.CrossEntropyLoss()  # for classes, we could use BCE but each box has just one class, no multilabel
+        self.sgm = nn.Sigmoid()
+
+        # losses are weighed (4 hyperparameters)
+        self.la_cls = 1
+        self.la_prs = 1
+        self.la_abs = 10
+        self.la_box = 10
+
+    def forward(self, pred_s, tar_s, scale):
+        """called separately at each of 3 scales"""
+        yobj = tar_s[..., 0] == 1  # presence mask (indices)
+        nobj = tar_s[..., 0] == 0  # absence mask
+        # NB: -1 value indices are completely ignored this way
+
+        # has object loss: object presence probability = iou_score, learns to predict not just 1 but own iou with gt
+        anchors = ANCHORS[scale].reshape(1, 3, 1, 1, 2)  # current anchor ~ 3*2 tensor,add dimensions to multiply freely
+        # transform preds, concatenate along last dimension
+        box_preds = torch.cat([self.sgm(pred_s[..., 1:3]),  torch.exp(pred_s[..., 3:5]) * anchors], dim=-1)
+        # take the ones with object and compare with target bbox by iou
+        ious = iou_pairwise(box_preds[yobj], tar_s[..., 1:5][yobj]).detach()
+        yo_loss = self.bce(pred_s[..., 0:1][yobj], ious * tar_s[..., 0:1][yobj])
+
+        # bounding box loss: # let's transform (part of) target to predictions, this trick allows better gradient flow,
+        pred_s[..., 1:3] = self.sgm(pred_s[..., 1:3])  # same prediction transformation as before
+        tar_s[..., 3:5] = torch.log(EPS**2 + tar_s[..., 3:5]) / anchors  # inversion of previous prediction transform
+        bo_loss = self.mse(pred_s[..., 1:5][yobj], tar_s[..., 1:5][yobj])
+
+        # no object loss: 0:1 is a trick to keep dimensions and don't throw an error by mask
+        no_loss = self.bce(pred_s[..., 0:1][nobj], tar_s[..., 0:1][nobj])
+        # class loss: takes C logits, outputs single number, compared w/ target class
+        ca_loss = self.ent(pred_s[..., 5:][yobj], tar_s[..., 5][yobj].long())
+
+        return self.la_abs * no_loss + self.la_prs * yo_loss + self.la_box * bo_loss + self.la_cls * ca_loss
+
+
 if __name__ == '__main__':
     import albumentations as A
     from albumentations.pytorch import ToTensorV2
@@ -166,3 +226,8 @@ if __name__ == '__main__':
     # show_img(pick(ds[0][:3]))
     sample(ds)
     print(ds[0][2])
+
+    # box = (0.4, 0.4, 0.4, 0.2)  # xywh
+    # boxes = [(0.4, 0.4, 0.34, 0.19), (0.2, 0.4, 0.1, 0.3), (0.6, 0.5, 0.4, 0.2)]
+    # res = iou(box, boxes)
+    # print(res, sorted(range(len(res)), reverse=True, key=lambda _: res[_]))
