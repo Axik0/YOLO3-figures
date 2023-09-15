@@ -145,9 +145,9 @@ class FiguresDataset(VisionDataset):
             target_dummies = [torch.zeros((self.nan_per_scale, s, s, 6)) for s in self.grid_sizes]
             for i, (al, gs, td) in enumerate(zip(self.anchors, self.grid_sizes, target_dummies)):
                 found = False
-                al_w_centers = [(x + a[0]/2, y + a[1]/2, *a)for a in al]
                 # cell choice - put current s-grid onto original image, take a cell w/ bb center inside (if not taken)
                 cx, cy = int(gs * x), int(gs * y)  # cell ~ top left corner relative (to grid) coordinates
+                al_w_centers = [(cx/gs + a[0]/2, cy/gs + a[1]/2, *a) for a in al]  # anchor is centered within a cell
                 # anchor choice - 'best' (by IoU) of all free anchors at each step, suppress the rest w/ same role (NMS)
                 anchor_ious = iou(base_box=bb, list_of_boxes=al_w_centers)
                 # sort in descending manner and get sorting indices
