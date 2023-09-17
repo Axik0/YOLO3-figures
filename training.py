@@ -36,7 +36,8 @@ def run(model, dataloader, loss_fn, optimizer=None, device=DEVICE, agg=True):
 
 
 def train(model, dataloader_train, dataloader_test, loss_fn, optimizer, n_epochs, device=DEVICE):
-    """training w/ evaluation on test dataset"""
+    """model training w/ evaluation on test dataset"""
+    model = model.to(device=DEVICE)
     epochs_ = tqdm.trange(n_epochs, desc='Epoch: ', position=0)
     dataloader_ = tqdm.tqdm(dataloader_train, colour='green', position=1)
     ss = 100  # description update period
@@ -55,8 +56,8 @@ if __name__ == '__main__':
     train_l = DL(dataset=ds, batch_size=1, shuffle=True)
     test_l = DL(dataset=ds, batch_size=1, shuffle=False)
     # instantiating
-    yolo = YOLO3().to(device=DEVICE)
-    loss_f = YOLOLoss()
-    optim = torch.optim.Adam(yolo.parameters(), lr=1e-5)
+    y_model = YOLO3()
+    y_loss = YOLOLoss()
+    optim = torch.optim.Adam(y_model.parameters(), lr=1e-5)
     # actual
-    train(yolo, train_l, test_l, loss_f, optim, device=DEVICE, n_epochs=300)
+    train(y_model, train_l, test_l, y_loss, optim, device=DEVICE, n_epochs=300)

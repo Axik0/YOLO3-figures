@@ -1,8 +1,6 @@
 """actual usage has been moved to jupyter notebook"""
-
 import torch
 import torch.nn as nn
-
 # template class for a dataset (makes our dataset compatible with torchvision)
 from torchvision.datasets import VisionDataset
 
