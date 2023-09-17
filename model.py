@@ -137,9 +137,13 @@ class YOLO3(nn.Module):
                     in_channels = in_channels * 3
         return layers
 
+    def __repr__(self):
+        summary(model, (3, IMAGE_SIZE, IMAGE_SIZE))
+        return f"Input shape:{('Batch_dim', 3, IMAGE_SIZE, IMAGE_SIZE)}"
+
 
 if __name__ == "__main__":
     model = YOLO3(num_classes=NUM_CLASSES)
     test_x = torch.randn((2, 3, IMAGE_SIZE, IMAGE_SIZE))
     # print(model(test_x))
-    summary(model, (3, IMAGE_SIZE, IMAGE_SIZE))
+    print(model)

@@ -7,7 +7,7 @@ import torchvision
 
 import matplotlib.pyplot as plt
 from generation import id_to_cname, PATH, EPS
-from process import YOLO_SIZE
+
 
 
 def show_img(tensor_chw):
@@ -26,7 +26,7 @@ def pick(element):
     for _ in range(len(labels_)):
         # lay out bbox (xcen,ycen,w,h) as (xmin,ymin,xmax,ymax)
         bb, label = bboxes_[_], labels_[_]
-        bbox = list(map(lambda x: YOLO_SIZE * x, (bb[0] - bb[2]/2, bb[1] - bb[3]/2, bb[0] + bb[2]/2, bb[1] + bb[3]/2)))
+        bbox = list(map(lambda x: 416 * x, (bb[0] - bb[2]/2, bb[1] - bb[3]/2, bb[0] + bb[2]/2, bb[1] + bb[3]/2)))
         bboxes.append(bbox)
         labels.append(id_to_cname[label])
     tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor, boxes=torch.tensor(bboxes), labels=labels, colors='black')
@@ -86,3 +86,11 @@ def iou_pairwise(tensor_1, tensor_2):
     aou = area_1 + area_2 - aoi
     aou[area_1 + area_2 == 0] = EPS  # just in case, not to get zero-division
     return aoi/aou
+
+
+if __name__ == '__main__':
+    box = (0.4, 0.4, 0.4, 0.2)  # xywh
+    boxes = [(0.4, 0.4, 0.34, 0.19), (0.2, 0.4, 0.1, 0.3), (0.6, 0.5, 0.4, 0.2)]
+    res = iou(box, boxes)
+    print(res, sorted(range(len(res)), reverse=True, key=lambda _: res[_]))
+    print(iou_pairwise(torch.rand(3, 3, 3, 4), torch.rand(3, 3, 3, 4)))

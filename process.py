@@ -20,7 +20,6 @@ ANCHORS = (
 )
 
 
-
 class FiguresDataset(VisionDataset):
     def __init__(self, transforms, iou_threshold=0.5, root=PATH, anchors=ANCHORS, gs=GRID_SIZES):
         super().__init__(root)
@@ -153,11 +152,3 @@ if __name__ == '__main__':
     # # show_img(pick(ds[0][:3]))
     # sample(ds)
     # print(ds[0][2])
-
-    # box = (0.4, 0.4, 0.4, 0.2)  # xywh
-    # boxes = [(0.4, 0.4, 0.34, 0.19), (0.2, 0.4, 0.1, 0.3), (0.6, 0.5, 0.4, 0.2)]
-    # res = iou(box, boxes)
-    # print(res, sorted(range(len(res)), reverse=True, key=lambda _: res[_]))
-
-    # print(iou_pairwise(torch.rand(3, 3, 3, 4), torch.rand(3, 3, 3, 4)))
-
