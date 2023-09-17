@@ -11,12 +11,12 @@ from model import YOLO3
 from process import FiguresDataset, YOLOLoss
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-DEFAULT_TRANSFORMS = [A.Normalize((0, 0, 0), (0.5, 0.5, 0.5)), A.Resize(416, 416), ToTensorV2()]
+DEFAULT_TR = [A.Normalize((0, 0, 0), (0.5, 0.5, 0.5)), A.Resize(416, 416), ToTensorV2()]
 # no augmentations for now: Normalized images, resized 256 --> 416, cast to torch.float tensors...(NB! order matters)
 
 
 def run(model, dataloader, loss_fn, optimizer=None, device=DEVICE, agg=True):
-    """single universal (forward + optional backward) pass, optional mean aggregation, MA over examples"""
+    """single universal (forward + optional backward) pass, mean aggregation over dataset by default as an output"""
     losses = []
     model.train() if optimizer else model.eval()
     with nullcontext() if not optimizer else torch.inference_mode():
@@ -36,6 +36,7 @@ def run(model, dataloader, loss_fn, optimizer=None, device=DEVICE, agg=True):
 
 
 def train(model, dataloader_train, dataloader_test, loss_fn, optimizer, n_epochs, device=DEVICE):
+    """training w/ evaluation on test dataset"""
     epochs_ = tqdm.trange(n_epochs, desc='Epoch: ', position=0)
     dataloader_ = tqdm.tqdm(dataloader_train, colour='green', position=1)
     ss = 100  # description update period
@@ -48,13 +49,14 @@ def train(model, dataloader_train, dataloader_test, loss_fn, optimizer, n_epochs
 
 
 if __name__ == '__main__':
-    dtr = A.Compose(DEFAULT_TRANSFORMS,
-                    bbox_params=A.BboxParams(format='yolo', label_fields=['cidx'], min_visibility=0.5))
+    # loading data
+    dtr = A.Compose(DEFAULT_TR, bbox_params=A.BboxParams(format='yolo', label_fields=['cidx'], min_visibility=0.5))
     ds = FiguresDataset(transforms=dtr)
-    yolo = YOLO3().to(device=DEVICE)
-    loss_f = YOLOLoss()
     train_l = DL(dataset=ds, batch_size=1, shuffle=True)
     test_l = DL(dataset=ds, batch_size=1, shuffle=False)
-    optimizer = torch.optim.Adam(yolo.parameters(), lr=1e-5)
-
-    train(yolo, train_l, test_l, loss_f, optimizer, device=DEVICE, n_epochs=300)
+    # instantiating
+    yolo = YOLO3().to(device=DEVICE)
+    loss_f = YOLOLoss()
+    optim = torch.optim.Adam(yolo.parameters(), lr=1e-5)
+    # actual
+    train(yolo, train_l, test_l, loss_f, optim, device=DEVICE, n_epochs=300)
