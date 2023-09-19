@@ -6,8 +6,7 @@ import torch
 import torchvision
 
 import matplotlib.pyplot as plt
-from generation import id_to_cname, PATH, EPS
-
+from generation import id_to_cname, EPS
 
 
 def show_img(tensor_chw):
@@ -18,18 +17,17 @@ def show_img(tensor_chw):
 
 def pick(element):
     """Visualize an element from the dataset with all bounding boxes and figure labels"""
-    tensor, bboxes_, labels_ = element[:3] # to comply with target at 4-th position
-    # read_image outputs uint8 0..255,
-    # we transform that to float on the fly but still need uint8 for visualization to work
+    tensor, (bboxes_, labels_, scale_idx) = element
+    # we have floats but still need uint8 for this visualization to work
     tensor = torchvision.transforms.ConvertImageDtype(torch.uint8)(tensor)
     bboxes, labels = [], []
     for _ in range(len(labels_)):
         # lay out bbox (xcen,ycen,w,h) as (xmin,ymin,xmax,ymax)
         bb, label = bboxes_[_], labels_[_]
-        bbox = list(map(lambda x: 416 * x, (bb[0] - bb[2]/2, bb[1] - bb[3]/2, bb[0] + bb[2]/2, bb[1] + bb[3]/2)))
+        bbox = list(map(lambda x: 416 * x, vertex_repr(bb)))
         bboxes.append(bbox)
         labels.append(id_to_cname[label])
-    tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor, boxes=torch.tensor(bboxes), labels=labels, colors='black')
+    tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor, boxes=torch.tensor(bboxes), labels=labels, colors=scale_idx)
     return tensor_w_boxes
 
 
@@ -86,6 +84,50 @@ def iou_pairwise(tensor_1, tensor_2):
     aou = area_1 + area_2 - aoi
     aou[area_1 + area_2 == 0] = EPS  # just in case, not to get zero-division
     return aoi/aou
+
+
+def raw_transform(raw_net_out_s, anchors_s, partial=False):
+    """this function is intended to be applied scalewise, partial=True limits this transformation to 1:3 ix;
+    according to yolo design, this transforms (batched) raw NN output (just 4 coords) to the desired (target) format"""
+    anchors = anchors_s.reshape(1, 3, 1, 1, 2)  # current anchor ~ 3*2 tensor, add dimensions to multiply freely
+    raw_net_out_s[..., 1:3] = torch.sigmoid(raw_net_out_s[..., 1:3])
+    if not partial:
+        raw_net_out_s[..., 3:5] = torch.exp(raw_net_out_s[..., 3:5]) * anchors
+    return raw_net_out_s
+
+
+def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
+    """primary purpose of this function is to preprocess target/prediction for visualization,
+    input looks like a list with 3=#GRID_SIZES tensors shaped (#anchors, gs(id), gs(id), 6), but
+    those tensors are quite sparse, only their nonzero values correspond to bboxes and labels (of figures on image),
+    but bboxes are yet to be decoded to absolute as they are given in relative (to grid, cell) format
+        raw=True allows to process raw net outputs (i.e. predictions)
+    NB0: it could account for 1st=batch dimension, but as far I am sure I won't apply this to batches
+    NB1: we may have 0...3 bboxes instead of a single bbox from original dataset, because those bboxes might be
+    already lost (as 'their' anchors+cells have been already taken) or we may have 1 bbox at all 3 scales
+    NB2: [..., 0] = -1 is treated same way as zeros [..., 0] = 0 (for visualization at least)"""
+    assert len(tar_like) == len(gs), f"This target doesn't have enough values for all {len(gs)} scales"
+    boxes, labels, scale_idx = [], [], []  # combine all information into 3 lists, bbox~(4-bbox, 1-label_id, 1-scale_id)
+    for s in tar_like:
+        # create presence mask (indices)
+        present_s = tar_like[s][..., 0] == 1
+        # convert 4 local (relative to cell shiftx, shifty, width, height) to absolute for all ai, cx, cy
+        ix = torch.nonzero(present_s)[:, 1:3].float()  # 2D tensor #nonzero*(N-1) with values=indices, extract (cx, cy)
+        # !this one should be cast to float manually because it's integer and going to be assigned to float!
+        # copy tensor and replace 4 values of last dimension with absolute bbox coordinates there
+        new_tl = tar_like[s].clone()  # .detach() maybe I should detach it too as it's for vis
+        if raw:  # transform raw net outs to target first, unsqueeze-squeeze as it requires batch dimension
+            tar_like[s] = raw_transform(tar_like[s].unsqueeze(0), anchors[s]).squeeze(0)
+        # calculate absolute center xy and assign at 1,2 positions of last dim (here 1:3 is just a coincidence)
+        new_tl[present_s][..., 1:3] = (ix + tar_like[present_s][..., 1:3]) / gs[s]
+        # calculate absolute width and height, then assign
+        new_tl[present_s][..., 3:5] = tar_like[present_s][..., 3:5] / gs[s]
+        # we don't need other dimensions anymore, reshape to (#found, 6) and save (params, labels) to dict
+        boxes_s, labels_s = new_tl[present_s].reshape(-1, 6)[1:5].tolist(), new_tl[present_s].reshape(-1, 6)[5].tolist()
+        boxes.append(boxes_s)
+        labels.append(labels_s)
+        scale_idx += [s] * len(labels_s)    # denotes detection on different scales (by color or so)
+    return boxes, labels, scale_idx
 
 
 if __name__ == '__main__':

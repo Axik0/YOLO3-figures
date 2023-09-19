@@ -5,7 +5,7 @@ import torch.nn as nn
 from torchvision.datasets import VisionDataset
 
 from generation import load_dataset, PATH, EPS
-from aux_utils import iou, iou_pairwise, show_img, sample, pick
+from aux_utils import iou, iou_pairwise, raw_transform, show_img, sample, pick
 
 YOLO_SIZE = 416
 # 3 feature maps at 3 different scales based on YOLOv3 paper
@@ -45,7 +45,7 @@ class FiguresDataset(VisionDataset):
         try:
             transformed = self.aug(image=self.images[i], bboxes=self.bboxes[i], cidx=self.c_idx[i])
             targets = self.build_targets(transformed['bboxes'], transformed['cidx'])
-            return transformed['image'], transformed['bboxes'], transformed['cidx'], targets
+            return transformed['image'], targets
         except ValueError:
             print('error!', self.bboxes[i])
             return None
@@ -96,48 +96,6 @@ class FiguresDataset(VisionDataset):
             if not found:  # found=None means that for-cycle has never started, that's impossible but nevertheless
                 self.unused_bboxes.append(bb)
         return targets
-
-
-def raw_transform(raw_net_out_s, anchors_s, partial=False):
-    """this function is intended to be applied scalewise, partial=True limits this transformation to 1:3 ix;
-    according to yolo design, this transforms (batched) raw NN output (just 4 coords) to the desired (target) format"""
-    anchors = anchors_s.reshape(1, 3, 1, 1, 2)  # current anchor ~ 3*2 tensor, add dimensions to multiply freely
-    raw_net_out_s[..., 1:3] = torch.sigmoid(raw_net_out_s[..., 1:3])
-    if not partial:
-        raw_net_out_s[..., 3:5] = torch.exp(raw_net_out_s[..., 3:5]) * anchors
-    return raw_net_out_s
-
-
-def targets_to_bboxes(tar_like: list, raw=False):
-    """primary purpose of this function is to preprocess target/prediction for visualization,
-    input looks like a list with 3=#GRID_SIZES tensors shaped (#anchors, gs(id), gs(id), 6), but
-    those tensors are quite sparse, only their nonzero values correspond to bboxes and labels (of figures on image),
-    but bboxes are yet to be decoded to absolute as they are given in relative (to grid, cell) format
-        raw=True allows to process raw net outputs (i.e. predictions)
-    NB0: it could account for 1st=batch dimension, but as far I am sure I won't apply this to batches
-    NB1: we may have 0...3 bboxes instead of a single bbox from original dataset, because those bboxes might be
-    already lost (as 'their' anchors+cells have been already taken) or we may have 1 bbox at all 3 scales
-    NB2: [..., 0] = -1 is treated same way as zeros [..., 0] = 0 (for visualization at least)"""
-    assert len(tar_like) == len(GRID_SIZES), f"This target doesn't have enough values for all {len(GRID_SIZES)} scales"
-    boxes_dd = {}  # combine all information about boxes in a dict with keys = scale_id, values = (4-bbox, 1-label_id)
-    for s in tar_like:
-        # create presence mask (indices)
-        present_s = tar_like[s][..., 0] == 1
-        # convert 4 local (relative to cell shiftx, shifty, width, height) to absolute for all ai, cx, cy
-        ix = torch.nonzero(present_s)[:, 1:3].float()  # 2D tensor #nonzero*(N-1) with values=indices, extract (cx, cy)
-        # !this one should be cast to float manually because it's integer and going to be assigned to float!
-        # copy tensor and replace 4 values of last dimension with absolute bbox coordinates there
-        new_tl = tar_like[s].clone()  # .detach() maybe I should detach it too as it's for vis
-        if raw:  # transform raw net outs to target first, unsqueeze-squeeze as it requires batch dimension
-            tar_like[s] = raw_transform(tar_like[s].unsqueeze(0), ANCHORS[s]).squeeze(0)
-        # calculate absolute center xy and assign at 1,2 positions of last dim (here 1:3 is just a coincidence)
-        new_tl[present_s][..., 1:3] = (ix + tar_like[present_s][..., 1:3]) / GRID_SIZES[s]
-        # calculate absolute width and height, then assign
-        new_tl[present_s][..., 3:5] = tar_like[present_s][..., 3:5] / GRID_SIZES[s]
-        # we don't need other dimensions anymore, reshape to (#found, 6) and save (params, labels) to dict
-        boxes_dd[s] = (new_tl[present_s].reshape(-1, 6)[1:5], new_tl[present_s].reshape(-1, 6)[5])
-        print(boxes_dd)
-    return boxes_dd
 
 
 class YOLOLoss(nn.Module):
