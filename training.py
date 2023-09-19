@@ -7,9 +7,6 @@ from contextlib import nullcontext
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
-from model import YOLO3
-from process import FiguresDataset, YOLOLoss
-
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 DEFAULT_TR = [A.Normalize((0, 0, 0), (0.5, 0.5, 0.5)), A.Resize(416, 416), ToTensorV2()]
 # no augmentations for now: Normalized images, resized 256 --> 416, cast to torch.float tensors...(NB! order matters)
@@ -50,6 +47,12 @@ def train(model, dataloader_train, dataloader_test, loss_fn, optimizer, n_epochs
 
 
 if __name__ == '__main__':
+    from model import YOLO3
+    from process import FiguresDataset, YOLOLoss
+
+    LR = 1E-5
+    NUM_EPOCHS = 300
+
     # loading data
     dtr = A.Compose(DEFAULT_TR, bbox_params=A.BboxParams(format='yolo', label_fields=['cidx'], min_visibility=0.5))
     ds = FiguresDataset(transforms=dtr)
@@ -58,6 +61,6 @@ if __name__ == '__main__':
     # instantiating
     y_model = YOLO3()
     y_loss = YOLOLoss()
-    optim = torch.optim.Adam(y_model.parameters(), lr=1e-5)
-    # actual
-    train(y_model, train_l, test_l, y_loss, optim, device=DEVICE, n_epochs=300)
+    optim = torch.optim.Adam(y_model.parameters(), lr=LR)
+    # actual processing
+    train(y_model, train_l, test_l, y_loss, optim, device=DEVICE, n_epochs=NUM_EPOCHS)

@@ -97,6 +97,21 @@ class FiguresDataset(VisionDataset):
         return targets
 
 
+def targets_to_bboxes(tar_like: list):
+    """primary purpose of this function is to preprocess target/prediction for visualization,
+    input looks like a list with 3=#GRID_SIZES tensors shaped (#anchors, gs(id), gs(id), 6), but
+    those tensors are quite sparse, only their nonzero values correspond to bboxes and labels (of figures on image),
+    but bboxes are yet to be decoded to absolute as they are given in relative (to grid, cell) format
+
+    NB1: we may have 0...3 bboxes instead of a single bbox from original dataset, because those bboxes might be
+    already lost (as 'their' anchors+cells have been already taken) or we may have 1 bbox at all 3 scales
+    NB2: [..., 0] = -1 is treated same way as zeros [..., 0] = 0 (for visualization at least)"""
+    assert len(tar_like) == len(GRID_SIZES), f"This target doesn't have enough values for all {len(GRID_SIZES)} scales"
+    for s in tar_like:
+        # create presence mask (indices)
+        present = tar_like[s][..., 0] == 1
+    #   cell tlc cx, cy, and local (relative to cell) shiftx, shifty, width, height parameters
+
 class YOLOLoss(nn.Module):
     def __init__(self):
         """combined regressor/classifier loss"""
