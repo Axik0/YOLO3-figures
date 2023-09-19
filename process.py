@@ -7,7 +7,6 @@ from torchvision.datasets import VisionDataset
 from generation import load_dataset, PATH, EPS
 from aux_utils import iou, iou_pairwise, show_img, sample, pick
 
-
 YOLO_SIZE = 416
 # 3 feature maps at 3 different scales based on YOLOv3 paper
 GRID_SIZES = (YOLO_SIZE // 32, YOLO_SIZE // 16, YOLO_SIZE // 8)
@@ -67,7 +66,8 @@ class FiguresDataset(VisionDataset):
                 found = False
                 # cell choice - put current s-grid onto original image, take a cell w/ bb center inside (if not taken)
                 cx, cy = int(gs * x), int(gs * y)  # cell ~ top left corner relative (to grid) coordinates
-                al_w_centers = [(cx/gs + a[0]/2, cy/gs + a[1]/2, *a) for a in al]  # anchor is centered within a cell
+                al_w_centers = [(cx / gs + a[0] / 2, cy / gs + a[1] / 2, *a) for a in
+                                al]  # anchor is centered within a cell
                 # anchor choice - 'best' (by IoU) of all free anchors at each step, suppress the rest w/ same role (NMS)
                 anchor_ious = iou(base_box=bb, list_of_boxes=al_w_centers)
                 # sort in descending manner and get sorting indices
@@ -81,7 +81,8 @@ class FiguresDataset(VisionDataset):
                             width_c, height_c = gs * w, gs * h  # bbox covers that many cells like this one
                             shift_cx, shift_cy = gs * x - cx, gs * y - cy  # center is that shifted from tlc of the cell
                             td[ai, cx, cy, 0] = 1  # occupy
-                            td[ai, cx, cy, 1:5] = torch.tensor([shift_cx, shift_cy, width_c, height_c])  # attach bb (1 scale)
+                            td[ai, cx, cy, 1:5] = torch.tensor(
+                                [shift_cx, shift_cy, width_c, height_c])  # attach bb (1 scale)
                             td[ai, cx, cy, 5] = ci  # attach class id label, ensure its integer value
                             found = True
                         # NMS -- taken best, suppress rest (if free and detect this bbox quite good)
@@ -95,6 +96,16 @@ class FiguresDataset(VisionDataset):
             if not found:  # found=None means that for-cycle has never started, that's impossible but nevertheless
                 self.unused_bboxes.append(bb)
         return targets
+
+
+def raw_transform(raw_net_out_s, anchors_s, partial=False):
+    """this function is intended to be applied scalewise, partial=True limits this transformation to 1:3 ix;
+    according to yolo design, this transforms (batched) raw NN output (just 4 coords) to the desired (target) format"""
+    anchors = anchors_s.reshape(1, 3, 1, 1, 2)  # current anchor ~ 3*2 tensor, add dimensions to multiply freely
+    raw_net_out_s[..., 1:3] = torch.sigmoid(raw_net_out_s[..., 1:3])
+    if not partial:
+        raw_net_out_s[..., 3:5] = torch.exp(raw_net_out_s[..., 3:5]) * anchors
+    return raw_net_out_s
 
 
 def targets_to_bboxes(tar_like: list, raw=False):
@@ -114,18 +125,18 @@ def targets_to_bboxes(tar_like: list, raw=False):
         present_s = tar_like[s][..., 0] == 1
         # convert 4 local (relative to cell shiftx, shifty, width, height) to absolute for all ai, cx, cy
         ix = torch.nonzero(present_s)[:, 1:3].float()  # 2D tensor #nonzero*(N-1) with values=indices, extract (cx, cy)
+        # !this one should be cast to float manually because it's integer and going to be assigned to float!
         # copy tensor and replace 4 values of last dimension with absolute bbox coordinates there
-        new_tl = tar_like[s].copy()
-        if raw:     # transform raw net outs to target first
-            anchors_s = ANCHORS[s].reshape(3, 1, 1, 2)  # current anchor ~ 3*2 tensor, add dimensions to multiply freely
-            tar_like[s][1:3] = torch.sigmoid(tar_like[s][1:3])
-            tar_like[s][3:5] = torch.exp(tar_like[s][3:5]) * anchors_s
+        new_tl = tar_like[s].clone()  # .detach() maybe I should detach it too as it's for vis
+        if raw:  # transform raw net outs to target first, unsqueeze-squeeze as it requires batch dimension
+            tar_like[s] = raw_transform(tar_like[s].unsqueeze(0), ANCHORS[s]).squeeze(0)
         # calculate absolute center xy and assign at 1,2 positions of last dim (here 1:3 is just a coincidence)
-        new_tl[present_s][..., 1:3] = (ix + tar_like[present_s][1:3])/GRID_SIZES[s]
+        new_tl[present_s][..., 1:3] = (ix + tar_like[present_s][..., 1:3]) / GRID_SIZES[s]
         # calculate absolute width and height, then assign
-        new_tl[present_s][..., 3:5] = tar_like[present_s][3:5]/GRID_SIZES[s]
+        new_tl[present_s][..., 3:5] = tar_like[present_s][..., 3:5] / GRID_SIZES[s]
         # we don't need other dimensions anymore, reshape to (#found, 6) and save (params, labels) to dict
         boxes_dd[s] = (new_tl[present_s].reshape(-1, 6)[1:5], new_tl[present_s].reshape(-1, 6)[5])
+        print(boxes_dd)
     return boxes_dd
 
 
@@ -136,7 +147,6 @@ class YOLOLoss(nn.Module):
         self.mse = nn.MSELoss()  # for regression - box predictions
         self.bce = nn.BCEWithLogitsLoss()  # object presence/absence
         self.ent = nn.CrossEntropyLoss()  # for classes, we could use BCE but each box has just one class, no multilabel
-        self.sgm = nn.Sigmoid()
 
         # losses are weighed (4 hyperparameters)
         self.la_cls = 1
@@ -151,16 +161,16 @@ class YOLOLoss(nn.Module):
         # NB: -1 value indices are completely ignored this way
 
         # has object loss: let object presence probability = iou_score, learns to predict not just 1 but own iou with gt
-        anchors = ANCHORS[scale].reshape(1, 3, 1, 1, 2)  # current anchor ~ 3*2 tensor,add dimensions to multiply freely
-        # transform predictions using given anchors, concatenate along last dimension
-        box_preds = torch.cat([self.sgm(pred_s[..., 1:3]),  torch.exp(pred_s[..., 3:5]) * anchors], dim=-1)
+        anchors_s = ANCHORS[scale]
+        # transform predictions to targets using given anchors
+        pred_s = raw_transform(pred_s, anchors_s)
         # take the ones with object and compare with target bbox by iou
-        ious = iou_pairwise(box_preds[yobj], tar_s[..., 1:5][yobj]).detach()  # yet unsure about this detachment
+        ious = iou_pairwise(pred_s[..., 1:5][yobj], tar_s[..., 1:5][yobj]).detach()  # yet unsure about this detachment
         yo_loss = self.bce(pred_s[..., 0:1][yobj], ious * tar_s[..., 0:1][yobj])
 
         # bounding box loss: let's transform (part of) target to predictions, this trick allows better gradient flow,
-        pred_s[..., 1:3] = self.sgm(pred_s[..., 1:3])  # same prediction transformation as before
-        tar_s[..., 3:5] = torch.log(EPS**2 + tar_s[..., 3:5]) / anchors  # inversion of previous prediction transform
+        pred_s[..., 1:3] = raw_transform(pred_s, anchors_s, True)[..., 1:3]  # this part is same sigmoid as before
+        tar_s[..., 3:5] = torch.log(EPS ** 2 + tar_s[..., 3:5]) / anchors_s  # transform target with inversion of before
         bo_loss = self.mse(pred_s[..., 1:5][yobj], tar_s[..., 1:5][yobj])
 
         # no object loss: 0:1 is a trick to keep dimensions and don't throw an error by mask
@@ -183,25 +193,22 @@ if __name__ == '__main__':
     # sample(ds)
     # print(ds[0][2])
 
-    x = torch.tensor([[
-        [ 0.6723,  1.2797],
-         [ 1.5562, -0.3216],
-         [-0.7927,  0.6416]],
-
-        [[ 0.3134,  0.2],
-         [-0.8613, 0.5  ],
-         [ 0.0538, -0.3507]],
-
-        [[-0.2787, -0.1952],
-         [ 0.4247,  0.5],
-         [ 1.2226,  0.5]]])
-
-    y = torch.zeros_like(x)
-    mask = x[..., 1] == 0.5
-    print(torch.nonzero(mask).float())
-    print(torch.where(mask))
-    # y[mask] = torch.nonzero(mask).float()
-    # print(y)
-
-
-
+    # x = torch.tensor([[
+    #     [ 0.6723,  1.2797],
+    #      [ 1.5562, -0.3216],
+    #      [-0.7927,  0.6416]],
+    #
+    #     [[ 0.3134,  0.2],
+    #      [-0.8613, 0.5  ],
+    #      [ 0.0538, -0.3507]],
+    #
+    #     [[-0.2787, -0.1952],
+    #      [ 0.4247,  0.5],
+    #      [ 1.2226,  0.5]]])
+    #
+    # y = torch.zeros_like(x)
+    # mask = x[..., 1] == 0.5
+    # print(torch.nonzero(mask))
+    # print(torch.where(mask))
+    # # y[mask] = torch.nonzero(mask).float()
+    # # print(y)
