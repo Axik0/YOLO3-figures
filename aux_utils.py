@@ -7,6 +7,7 @@ import torchvision
 
 import matplotlib.pyplot as plt
 from generation import id_to_cname, EPS
+from itertools import chain
 
 
 def show_img(tensor_chw):
@@ -23,11 +24,12 @@ def pick(element):
     bboxes, labels = [], []
     for _ in range(len(labels_)):
         # lay out bbox (xcen,ycen,w,h) as (xmin,ymin,xmax,ymax)
-        bb, label = bboxes_[_], labels_[_]
-        bbox = list(map(lambda x: 416 * x, vertex_repr(bb)))
+        bb, label = bboxes_[_], int(labels_[_])
+        bbox = list(map(lambda x: 416 * x, chain(*vertex_repr(bb))))
         bboxes.append(bbox)
+        print(bbox)
         labels.append(id_to_cname[label])
-    tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor, boxes=torch.tensor(bboxes), labels=labels, colors=scale_idx)
+    tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor, boxes=torch.tensor(bboxes), labels=labels, colors='black')
     return tensor_w_boxes
 
 
@@ -106,9 +108,10 @@ def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
     NB1: we may have 0...3 bboxes instead of a single bbox from original dataset, because those bboxes might be
     already lost (as 'their' anchors+cells have been already taken) or we may have 1 bbox at all 3 scales
     NB2: [..., 0] = -1 is treated same way as zeros [..., 0] = 0 (for visualization at least)"""
-    assert len(tar_like) == len(gs), f"This target doesn't have enough values for all {len(gs)} scales"
+    tl_length = len(tar_like)
+    assert tl_length == len(gs), f"This target doesn't have enough values for all {len(gs)} scales"
     boxes, labels, scale_idx = [], [], []  # combine all information into 3 lists, bbox~(4-bbox, 1-label_id, 1-scale_id)
-    for s in tar_like:
+    for s in range(tl_length):
         # create presence mask (indices)
         present_s = tar_like[s][..., 0] == 1
         # convert 4 local (relative to cell shiftx, shifty, width, height) to absolute for all ai, cx, cy
@@ -119,15 +122,15 @@ def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
         if raw:  # transform raw net outs to target first, unsqueeze-squeeze as it requires batch dimension
             tar_like[s] = raw_transform(tar_like[s].unsqueeze(0), anchors[s]).squeeze(0)
         # calculate absolute center xy and assign at 1,2 positions of last dim (here 1:3 is just a coincidence)
-        new_tl[present_s][..., 1:3] = (ix + tar_like[present_s][..., 1:3]) / gs[s]
+        new_tl[..., 1:3][present_s] = (ix + tar_like[s][..., 1:3][present_s]) / gs[s]  # order matters, slice then mask!
         # calculate absolute width and height, then assign
-        new_tl[present_s][..., 3:5] = tar_like[present_s][..., 3:5] / gs[s]
+        new_tl[..., 3:5][present_s] = tar_like[s][..., 3:5][present_s] / gs[s]
         # we don't need other dimensions anymore, reshape to (#found, 6) and save (params, labels) to dict
-        boxes_s, labels_s = new_tl[present_s].reshape(-1, 6)[1:5].tolist(), new_tl[present_s].reshape(-1, 6)[5].tolist()
+        boxes_s, labels_s = new_tl[present_s].reshape(-1, 6)[:, 1:5].tolist(), new_tl[present_s].reshape(-1, 6)[:, 5].tolist()
         boxes.append(boxes_s)
         labels.append(labels_s)
         scale_idx += [s] * len(labels_s)    # denotes detection on different scales (by color or so)
-    return boxes, labels, scale_idx
+    return boxes[0], labels[0], scale_idx
 
 
 if __name__ == '__main__':

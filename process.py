@@ -5,7 +5,7 @@ import torch.nn as nn
 from torchvision.datasets import VisionDataset
 
 from generation import load_dataset, PATH, EPS
-from aux_utils import iou, iou_pairwise, raw_transform, show_img, sample, pick
+from aux_utils import iou, iou_pairwise, raw_transform, show_img, sample, pick, tl_to_bboxes
 
 YOLO_SIZE = 416
 # 3 feature maps at 3 different scales based on YOLOv3 paper
@@ -55,13 +55,12 @@ class FiguresDataset(VisionDataset):
 
     def build_targets(self, bbox_list, label_list):
         """exclusively assigns 1 cell, 1 anchor (in that cell) to each bounding box at all 3 scales (if possible)"""
-        targets = []
+        target_dummies = [torch.zeros((self.nan_per_scale, s, s, 6)) for s in self.grid_sizes]
         for bb, ci in zip(bbox_list, label_list):
             found = None
             # extract current bounding box's (relative to image!) coordinates
             x, y, w, h = bb
             # prepare 3*s*s*(presence(0/1),bbox(4),class_id) torch tensor dummies for all scales
-            target_dummies = [torch.zeros((self.nan_per_scale, s, s, 6)) for s in self.grid_sizes]
             for i, (al, gs, td) in enumerate(zip(self.anchors, self.grid_sizes, target_dummies)):
                 found = False
                 # cell choice - put current s-grid onto original image, take a cell w/ bb center inside (if not taken)
@@ -91,11 +90,10 @@ class FiguresDataset(VisionDataset):
                             td[ai, cx, cy, 0] = -1  # ignore, i.e. they're NOT available for future (other bboxes)
                 # replace target_dummy with td (even if td hasn't changed, i.e. all zeros)
                 target_dummies[i] = td
-            targets.append(target_dummies)
             # NB all anchors at cell might have been used up(by previous bboxes) => bbox is NOT detected on the scale gs
             if not found:  # found=None means that for-cycle has never started, that's impossible but nevertheless
                 self.unused_bboxes.append(bb)
-        return targets
+        return tuple(target_dummies)
 
 
 class YOLOLoss(nn.Module):
@@ -146,8 +144,11 @@ if __name__ == '__main__':
     tr_list = [A.Normalize((0, 0, 0), (0.5, 0.5, 0.5)), A.Resize(416, 416), ToTensorV2()]
     tr = A.Compose(tr_list, bbox_params=A.BboxParams(format='yolo', label_fields=['cidx']))
 
-    # ds = FiguresDataset(transforms=tr)
-    # # show_img(pick(ds[0][:3]))
+    ds = FiguresDataset(transforms=tr)
+    def decode(element):
+        return element[0], tl_to_bboxes(element[1], gs=GRID_SIZES, anchors=ANCHORS, raw=False)
+
+    show_img(pick(decode(ds[0])))
     # sample(ds)
     # print(ds[0][2])
 
@@ -169,4 +170,5 @@ if __name__ == '__main__':
     # print(torch.nonzero(mask))
     # print(torch.where(mask))
     # # y[mask] = torch.nonzero(mask).float()
-    # # print(y)
+    # y[mask[:,1]] = 5
+    # print(y[mask])
