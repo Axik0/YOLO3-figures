@@ -103,7 +103,7 @@ def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
         new_tl[..., 1:3][present_s] = (ix + tar_like[s][..., 1:3][present_s]) / gs[s]  # order matters, slice then mask!
         # calculate absolute width and height, then assign
         new_tl[..., 3:5][present_s] = tar_like[s][..., 3:5][present_s] / gs[s]
-        # we don't need other dimensions anymore, reshape to (#found, 6) and save (params, labels) to dict
+        # we don't need other dimensions anymore, reshape to (#found, 6) and save params, labels and scales for colours
         boxes_s, labels_s = new_tl[present_s].reshape(-1, 6)[:, 1:5].tolist(), new_tl[present_s].reshape(-1, 6)[:, 5].tolist()
         boxes.append(boxes_s)
         labels.append(labels_s)
@@ -120,7 +120,7 @@ def pick(element, gs, anchors, raw=False):
     # data may contain nested lists (for each scale), detect and flatten them
     # not 'raw', data[1][0] could either be 1st scale bb list/tuple or 1st label in list of labels (thus float)
     bbxs, lls, sidx = map(lambda t: t if isinstance(data[1][0], float) else list(chain(*t)), data)
-    palette = ['#092327', '#0b5351', '#00a9a5']
+    palette = ['#092327', '#0b5351', '#00a9a5']     # darkest colour first
 
     def pixel_v(bbox):
         """transform bbox from absolute to relative: change representation, flatten and scale bbox to IMAGE_SIZE"""
