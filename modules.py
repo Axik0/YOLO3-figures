@@ -134,9 +134,9 @@ class YOLOLoss(nn.Module):
         # no object loss: 0:1 is a trick to keep dimensions and don't throw an error by mask
         no_loss = self.bce(pred_s[..., 0:1][nobj], tar_s[..., 0:1][nobj])
         # class loss: takes C logits, outputs single number, compared w/ target class
-        # ca_loss = self.ent(pred_s[..., 5:][yobj], tar_s[..., 5][yobj].long())
-        print(no_loss, yo_loss, bo_loss)
-        return self.la_abs * no_loss + self.la_prs * yo_loss + self.la_box * bo_loss #+ self.la_cls * ca_loss
+        ca_loss = self.ent(pred_s[..., 5:][yobj], tar_s[..., 5][yobj].long())
+        # print(no_loss, yo_loss, bo_loss)
+        return self.la_abs * no_loss + self.la_prs * yo_loss + self.la_box * bo_loss + self.la_cls * ca_loss
 
 
 if __name__ == '__main__':
