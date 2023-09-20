@@ -58,15 +58,15 @@ class FiguresDataset(VisionDataset):
         target_dummies = [torch.zeros((self.nan_per_scale, s, s, 6)) for s in self.grid_sizes]
         for bb, ci in zip(bbox_list, label_list):
             found = None
-            # extract current bounding box's (relative to image!) coordinates
+            # extract current bounding box's (absolute!) coordinates
             x, y, w, h = bb
             # prepare 3*s*s*(presence(0/1),bbox(4),class_id) torch tensor dummies for all scales
             for i, (al, gs, td) in enumerate(zip(self.anchors, self.grid_sizes, target_dummies)):
                 found = False
                 # cell choice - put current s-grid onto original image, take a cell w/ bb center inside (if not taken)
-                cx, cy = int(gs * x), int(gs * y)  # cell ~ top left corner relative (to grid) coordinates
+                cx, cy = int(gs * x), int(gs * y)  # cell ~ top left corner relative (to grid,i.e. in cells) coordinates
                 al_w_centers = [(cx / gs + a[0] / 2, cy / gs + a[1] / 2, *a) for a in
-                                al]  # anchor is centered within a cell
+                                al]  # anchor is centered within a cell, this line adds center's absolute coordinates
                 # anchor choice - 'best' (by IoU) of all free anchors at each step, suppress the rest w/ same role (NMS)
                 anchor_ious = iou(base_box=bb, list_of_boxes=al_w_centers)
                 # sort in descending manner and get sorting indices
@@ -116,8 +116,10 @@ class YOLOLoss(nn.Module):
         nobj = tar_s[..., 0] == 0  # absence mask
         # NB: -1 value indices are completely ignored this way
 
+        # current anchor_s ~ 3*2 tensor, add dimensions to multiply freely
+        anchors_s = torch.tensor(ANCHORS[scale]).reshape(1, 3, 1, 1, 2)
+
         # has object loss: let object presence probability = iou_score, learns to predict not just 1 but own iou with gt
-        anchors_s = ANCHORS[scale]
         # transform predictions to targets using given anchors
         pred_s = raw_transform(pred_s, anchors_s)
         # take the ones with object and compare with target bbox by iou
@@ -132,9 +134,9 @@ class YOLOLoss(nn.Module):
         # no object loss: 0:1 is a trick to keep dimensions and don't throw an error by mask
         no_loss = self.bce(pred_s[..., 0:1][nobj], tar_s[..., 0:1][nobj])
         # class loss: takes C logits, outputs single number, compared w/ target class
-        ca_loss = self.ent(pred_s[..., 5:][yobj], tar_s[..., 5][yobj].long())
-
-        return self.la_abs * no_loss + self.la_prs * yo_loss + self.la_box * bo_loss + self.la_cls * ca_loss
+        # ca_loss = self.ent(pred_s[..., 5:][yobj], tar_s[..., 5][yobj].long())
+        print(no_loss, yo_loss, bo_loss)
+        return self.la_abs * no_loss + self.la_prs * yo_loss + self.la_box * bo_loss #+ self.la_cls * ca_loss
 
 
 if __name__ == '__main__':
@@ -170,4 +172,11 @@ if __name__ == '__main__':
     # print(torch.where(mask))
     # # y[mask] = torch.nonzero(mask).float()
     # y[mask[:,1]] = 5
+
     # print(y[mask])
+    # loss_f = YOLOLoss()
+    # test = ds[0][1][1].unsqueeze(0)
+    # test2 = ds[1][1][1].unsqueeze(0)
+    # print(loss_f(test, test, 1))
+    # we have to disable CE part as we don't have class probabilities
+    # At least bbox part is zero

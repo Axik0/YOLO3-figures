@@ -138,7 +138,7 @@ class YOLO3(nn.Module):
         return layers
 
     def __repr__(self):
-        summary(model, (3, IMAGE_SIZE, IMAGE_SIZE))
+        summary(self, (3, IMAGE_SIZE, IMAGE_SIZE))
         return f"Input shape:{('Batch_dim', 3, IMAGE_SIZE, IMAGE_SIZE)}"
 
 

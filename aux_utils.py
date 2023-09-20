@@ -68,10 +68,10 @@ def iou_pairwise(tensor_1, tensor_2):
 def raw_transform(raw_net_out_s, anchors_s, partial=False):
     """this function is intended to be applied scalewise, partial=True limits this transformation to 1:3 ix;
     according to yolo design, this transforms (batched) raw NN output (just 4 coords) to the desired (target) format"""
-    anchors = anchors_s.reshape(1, 3, 1, 1, 2)  # current anchor ~ 3*2 tensor, add dimensions to multiply freely
+    # anchors = anchors_s.reshape(1, 3, 1, 1, 2)  # current anchor ~ 3*2 tensor, add dimensions to multiply freely
     raw_net_out_s[..., 1:3] = torch.sigmoid(raw_net_out_s[..., 1:3])
     if not partial:
-        raw_net_out_s[..., 3:5] = torch.exp(raw_net_out_s[..., 3:5]) * anchors
+        raw_net_out_s[..., 3:5] = torch.exp(raw_net_out_s[..., 3:5]) * anchors_s
     return raw_net_out_s
 
 
@@ -98,7 +98,9 @@ def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
         # copy tensor and replace 4 values of last dimension with absolute bbox coordinates there
         new_tl = tar_like[s].clone()  # .detach() maybe I should detach it too as it's for vis
         if raw:  # transform raw net outs to target first, unsqueeze-squeeze as it requires batch dimension
-            tar_like[s] = raw_transform(tar_like[s].unsqueeze(0), anchors[s]).squeeze(0)
+            # current anchor_s ~ 3*2 tensor, add dimensions to multiply freely
+            anchors_s = torch.tensor(anchors[s]).reshape(3, 1, 1, 2)
+            tar_like[s] = raw_transform(tar_like[s].unsqueeze(0), anchors_s).squeeze(0)
         # calculate absolute center xy and assign at 1,2 positions of last dim (here 1:3 is just a coincidence)
         new_tl[..., 1:3][present_s] = (ix + tar_like[s][..., 1:3][present_s]) / gs[s]  # order matters, slice then mask!
         # calculate absolute width and height, then assign
