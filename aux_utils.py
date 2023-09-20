@@ -16,29 +16,6 @@ def show_img(tensor_chw):
     plt.show()
 
 
-def pick(element):
-    """Visualize an element from the dataset with all bounding boxes and figure labels"""
-    tensor, (bboxes_, labels_, scale_idx) = element
-    # we have floats but still need uint8 for this visualization to work
-    tensor = torchvision.transforms.ConvertImageDtype(torch.uint8)(tensor)
-    bboxes, labels = [], []
-    for _ in range(len(labels_)):
-        # lay out bbox (xcen,ycen,w,h) as (xmin,ymin,xmax,ymax)
-        bb, label = bboxes_[_], int(labels_[_])
-        bbox = list(map(lambda x: 416 * x, chain(*vertex_repr(bb))))
-        bboxes.append(bbox)
-        print(bbox)
-        labels.append(id_to_cname[label])
-    tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor, boxes=torch.tensor(bboxes), labels=labels, colors='black')
-    return tensor_w_boxes
-
-
-def sample(elements, size=9):
-    """Visualize a bunch of items from the dataset with all bounding boxes and figure labels"""
-    sample_list = [pick(elements[i]) for i in range(size)]
-    show_img(torchvision.utils.make_grid(sample_list, nrow=np.sqrt(size).astype(int)))
-
-
 def vertex_repr(bbox):
     """converts from (x_center, y_center, w, h) to minimal-maximal vertex representation"""
     xc, yc, w, h = bbox
@@ -109,6 +86,7 @@ def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
     already lost (as 'their' anchors+cells have been already taken) or we may have 1 bbox at all 3 scales
     NB2: [..., 0] = -1 is treated same way as zeros [..., 0] = 0 (for visualization at least)"""
     tl_length = len(tar_like)
+    limit = slice(None) if raw else 0  # we don't need all 3 scales for targers, they are same (up to permutation)
     assert tl_length == len(gs), f"This target doesn't have enough values for all {len(gs)} scales"
     boxes, labels, scale_idx = [], [], []  # combine all information into 3 lists, bbox~(4-bbox, 1-label_id, 1-scale_id)
     for s in range(tl_length):
@@ -129,8 +107,38 @@ def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
         boxes_s, labels_s = new_tl[present_s].reshape(-1, 6)[:, 1:5].tolist(), new_tl[present_s].reshape(-1, 6)[:, 5].tolist()
         boxes.append(boxes_s)
         labels.append(labels_s)
-        scale_idx += [s] * len(labels_s)    # denotes detection on different scales (by color or so)
-    return boxes[0], labels[0], scale_idx
+        scale_idx.append([s] * len(labels_s))    # denotes detection on different scales (by color or so)
+    return boxes[limit], labels[limit], scale_idx[limit]
+
+
+def pick(element, gs, anchors, raw=False):
+    """Visualize an element from the dataset with all bounding boxes and figure labels"""
+    # we have floats but still need uint8 for this visualization to work
+    tensor = torchvision.transforms.ConvertImageDtype(torch.uint8)(element[0])
+    # extract labels, absolute bboxes (xywh)
+    data = tl_to_bboxes(element[1], gs, anchors, raw=raw)
+    # data may contain nested lists (for each scale), detect and flatten them
+    # not 'raw', data[1][0] could either be 1st scale bb list/tuple or 1st label in list of labels (thus float)
+    bbxs, lls, sidx = map(lambda t: t if isinstance(data[1][0], float) else list(chain(*t)), data)
+    palette = ['#092327', '#0b5351', '#00a9a5']
+
+    def pixel_v(bbox):
+        """transform bbox from absolute to relative: change representation, flatten and scale bbox to IMAGE_SIZE"""
+        return list(map(lambda x: 416 * x, chain(*vertex_repr(bbox))))
+    # transform box coordinates, get labels
+    bboxes, labels, colors = zip(*[(pixel_v(b), id_to_cname[int(l)], palette[i]) for b, l, i in zip(bbxs, lls, sidx)])
+    tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor,
+                                                           boxes=torch.tensor(bboxes),
+                                                           labels=labels,
+                                                           colors=list(colors),   # doesn't accept tuples, bug to report
+                                                        )
+    return tensor_w_boxes
+
+
+def sample(elements, size=9, **kwargs):
+    """Visualize a bunch of items from the dataset with all bounding boxes and figure labels"""
+    sample_list = [pick(elements[i], **kwargs) for i in range(size)]
+    show_img(torchvision.utils.make_grid(sample_list, nrow=np.sqrt(size).astype(int)))
 
 
 if __name__ == '__main__':

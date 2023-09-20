@@ -5,7 +5,7 @@ import torch.nn as nn
 from torchvision.datasets import VisionDataset
 
 from generation import load_dataset, PATH, EPS
-from aux_utils import iou, iou_pairwise, raw_transform, show_img, sample, pick, tl_to_bboxes
+from aux_utils import iou, iou_pairwise, raw_transform, show_img, sample, pick
 
 YOLO_SIZE = 416
 # 3 feature maps at 3 different scales based on YOLOv3 paper
@@ -88,8 +88,8 @@ class FiguresDataset(VisionDataset):
                         elif found and anchor_ious[ai] > self.iou_thr:
                             # best anchor is assigned, get rid of rest (only the ones that also detect this bbox ok!)
                             td[ai, cx, cy, 0] = -1  # ignore, i.e. they're NOT available for future (other bboxes)
-                # replace target_dummy with td (even if td hasn't changed, i.e. all zeros)
-                target_dummies[i] = td
+                        # replace target_dummy with td (even if td hasn't changed, i.e. all zeros)
+                        target_dummies[i][ai, cx, cy] = td[ai, cx, cy]
             # NB all anchors at cell might have been used up(by previous bboxes) => bbox is NOT detected on the scale gs
             if not found:  # found=None means that for-cycle has never started, that's impossible but nevertheless
                 self.unused_bboxes.append(bb)
@@ -145,11 +145,10 @@ if __name__ == '__main__':
     tr = A.Compose(tr_list, bbox_params=A.BboxParams(format='yolo', label_fields=['cidx']))
 
     ds = FiguresDataset(transforms=tr)
-    def decode(element):
-        return element[0], tl_to_bboxes(element[1], gs=GRID_SIZES, anchors=ANCHORS, raw=False)
-
-    show_img(pick(decode(ds[0])))
-    # sample(ds)
+    # it's weird to move yolo constants to aux_utils, can't be imported from here as it leads to circular import error
+    gsa = {'gs': GRID_SIZES, 'anchors': ANCHORS}
+    # show_img(pick(ds[0], **gsa))
+    sample(ds, **gsa)
     # print(ds[0][2])
 
     # x = torch.tensor([[
