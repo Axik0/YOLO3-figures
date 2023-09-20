@@ -18,7 +18,7 @@ def run(model, dataloader, loss_fn, optimizer=None, device=DEVICE, agg=True):
     model.train() if optimizer else model.eval()
     with nullcontext() if not optimizer else torch.inference_mode():
         for img, tar in dataloader:
-            x, y = img.to(device), (tar[0].to(device), tar[1].to(device), tar[3].to(device))
+            x, y = img.to(device), (tar[0].to(device), tar[1].to(device), tar[2].to(device))
             # forward pass
             p = model(x)
             loss_sc = [loss_fn(pred_s=p[s], tar_s=y[s], scale=s) for s in range(3)]
@@ -48,7 +48,7 @@ def train(model, dataloader_train, dataloader_test, loss_fn, optimizer, n_epochs
 
 if __name__ == '__main__':
     from model import YOLO3
-    from process import FiguresDataset, YOLOLoss
+    from modules import FiguresDataset, YOLOLoss
 
     LR = 1E-5
     NUM_EPOCHS = 300
