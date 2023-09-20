@@ -34,7 +34,7 @@ def run(model, dataloader, loss_fn, optimizer=None, device=DEVICE, agg=True):
 
 def train(model, dataloader_train, dataloader_test, loss_fn, optimizer, n_epochs, device=DEVICE):
     """model training w/ evaluation on test dataset"""
-    model = model.to(device=DEVICE)
+    model = model.to(device=device)
     epochs_ = tqdm.trange(n_epochs, desc='Epoch: ', position=0)
     dataloader_ = tqdm.tqdm(dataloader_train, colour='green', position=1)
     ss = 100  # description update period
