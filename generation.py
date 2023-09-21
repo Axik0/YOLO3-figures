@@ -28,7 +28,7 @@ import os
 import json
 import inspect
 
-from numpy import array
+import numpy as np
 # I won't use numpy for a task that simple intentionally
 import random
 import statistics
@@ -60,7 +60,7 @@ def get_data(json_object_path):
 
 
 def load_image(image_path):
-    return array(Image.open(image_path, mode='r'))
+    return np.array(Image.open(image_path, mode='r'))
 
 
 def rand_split(n, k: int, l_bound=0):
@@ -502,15 +502,16 @@ def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
     return img_to_show
 
 
-def load_dataset(transforms, root=PATH, data_name=DNAME):
+def load_dataset(transforms, part, root=PATH, data_name=DNAME, stats=True):
     """requires at least ToTensorV2 transformation, outputs 3 lists - images, bounding boxes, figure indices
     , applying those transformations is memory inefficient, can't be solved with 8Gb RAM only"""
     data = get_data(json_object_path=os.path.join(root, data_name))
-    loaded = [(load_image(os.path.join(root, local_path)), data) for local_path, data in data.items()]
+    loaded = [(load_image(os.path.join(root, local_path)), data) for local_path, data in data.items()][slice(*part)]
 
-    def semi_process(loaded_data, split=(None, None, None)):
+    def semi_process(loaded_data, calculate_stats, split=(None, None, None)):
         """I want to apply transforms in a single pass, that's memory inefficient thus requires batching"""
         tensors_l, bboxes_l, labels_l = [], [], []
+        mean_rgb_, std_rgb_ = np.zeros(3), np.zeros(3)
         for image, desc in loaded_data[slice(*split)]:
             c_bbxs, c_idx = [], []
             # [['Hexagon', [194, 144], [28.7, 28.7]], ['Rhombus', [42, 60], [55.8614, 55.8614]], ...]
@@ -524,6 +525,10 @@ def load_dataset(transforms, root=PATH, data_name=DNAME):
                     bbox[3] = 2 * min(bbox[1], 1 - bbox[1])
                 c_bbxs.append(bbox)
                 c_idx.append(cname_to_id[fig[0]])
+            if calculate_stats:
+                # for now, images are hwc numpy arrays, mean over 2 axes (hw) at once to get RGB channel means
+                mean_rgb_ += np.mean(image, axis=(0, 1))
+                std_rgb_ += np.std(image, axis=(0, 1))
             tensors_l.append(image)
             bboxes_l.append(c_bbxs)
             labels_l.append(c_idx)
@@ -536,13 +541,18 @@ def load_dataset(transforms, root=PATH, data_name=DNAME):
             # tensors_l.append(transformed['image'])
             # bboxes_l.append(transformed['bboxes'])
             # labels_l.append(transformed['cidx'])
-        return tensors_l, bboxes_l, labels_l
+        mean_rgb, std_rgb = map(lambda s: np.round((s/len(loaded_data))/255, 3).tolist(), (mean_rgb_, std_rgb_))
+        return tensors_l, bboxes_l, labels_l, mean_rgb, std_rgb
 
     # chain nested lists
     # tensors, bboxes, labels = chain(semi_process(loaded, (None, len(loaded)//2)), semi_process(loaded, (len(loaded)//2, None)))
-    tensors, bboxes, labels = semi_process(loaded)
-    print(f'{len(labels)} images, boxes, class indices have been loaded successfully')
-    return tensors, bboxes, labels
+    tensors, bboxes, labels, mean_c, std_c = semi_process(loaded, calculate_stats=stats)
+    print(f'{len(labels)} images, boxes, class indices have been loaded successfully.')
+    if stats:
+        print(f'Image distribution has per-channel (RGB) mean: {mean_c} and std: {std_c}')
+    else:
+        print('Image statistics has not been calculated, use builtins')
+    return tensors, bboxes, labels, mean_c, std_c
 
 
 id_to_class = [Circle, Rhombus, Rectangle, Triangle, Polygon]

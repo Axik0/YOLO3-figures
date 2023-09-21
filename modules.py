@@ -4,6 +4,9 @@ import torch.nn as nn
 # template class for a dataset (makes our dataset compatible with torchvision)
 from torchvision.datasets import VisionDataset
 
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
 from generation import load_dataset, PATH, EPS
 from aux_utils import iou, iou_pairwise, raw_transform, show_img, sample, pick
 
@@ -16,12 +19,18 @@ ANCHORS = (
     ((0.02, 0.03), (0.04, 0.07), (0.08, 0.06)),
 )
 
+DEFAULT_TR = [A.Resize(YOLO_SIZE, YOLO_SIZE), ToTensorV2()]
+# no augmentations, just resized 256 --> 416, cast to torch.float tensors...(NB! order matters)
+
 
 class FiguresDataset(VisionDataset):
-    def __init__(self, transforms, iou_threshold=0.5, root=PATH, anchors=ANCHORS, gs=GRID_SIZES):
+    """Main task is to transform images and create yolo targets based on data loaded from PATH,
+    must-have transforms are built-in already thus aug_list is supposed to contain some augmentations only
+    part=(start_id, end_id) translates to slicing on loaded data
+    upd_stats allows to get actual mean and standard deviation values per img channel, very slow"""
+    def __init__(self, aug=(), part=(None, None), iou_threshold=0.5, root=PATH, anchors=ANCHORS, gs=GRID_SIZES, upd_stats=False):
         super().__init__(root)
         self.iou_thr = iou_threshold
-        self.aug = transforms
         # anchors are set by just (relative) width & height, nested tuple 3*3
         self.anchors = anchors
         # number of anchors at each scale
@@ -29,8 +38,13 @@ class FiguresDataset(VisionDataset):
         # each of 3 scales has grid_size and set of 3 anchors
         self.grid_sizes = gs
         assert self.nan_per_scale == len(self.grid_sizes), "#anchors doesn't coincide with #grid sizes"
-        self.images, self.bboxes, self.c_idx = load_dataset(transforms=self.aug)
+        self.images, self.bboxes, self.c_idx, mean_c, std_c = load_dataset(transforms=None, part=part, stats=upd_stats)
         assert len(self.images) == len(self.bboxes), 'wrong dataset generation, please retry'
+        # calculate per-channel mean and std (over whole dataset, slow) while loading or just use pre-calculated
+        self.mean, self.std = (mean_c, std_c) if upd_stats else [0.641, 0.612, 0.596], [0.115, 0.11, 0.11]
+        # aug_list should contain just image augmentations, the rest is already given
+        self.tra = A.Compose(transforms=tuple(aug) + (A.Normalize(self.mean, self.std), *DEFAULT_TR),
+                             bbox_params=A.BboxParams(format='yolo', label_fields=['cidx'], min_visibility=0.5))
         # establish 1:1 correspondence (at each scale): ground truth bounding box <-> anchor box and cell as target
         # let's keep track of bboxes that have never been mapped (on all 3 scales) for further investigation purposes
         self.unused_bboxes = []
@@ -43,7 +57,7 @@ class FiguresDataset(VisionDataset):
 
     def __getitem__(self, i):
         try:
-            transformed = self.aug(image=self.images[i], bboxes=self.bboxes[i], cidx=self.c_idx[i])
+            transformed = self.tra(image=self.images[i], bboxes=self.bboxes[i], cidx=self.c_idx[i])
             targets = self.build_targets(transformed['bboxes'], transformed['cidx'])
             return transformed['image'], targets
         except ValueError:
@@ -140,13 +154,7 @@ class YOLOLoss(nn.Module):
 
 
 if __name__ == '__main__':
-    import albumentations as A
-    from albumentations.pytorch import ToTensorV2
-
-    tr_list = [A.Normalize((0, 0, 0), (0.5, 0.5, 0.5)), A.Resize(416, 416), ToTensorV2()]
-    tr = A.Compose(tr_list, bbox_params=A.BboxParams(format='yolo', label_fields=['cidx']))
-
-    ds = FiguresDataset(transforms=tr)
+    ds = FiguresDataset(part=(200, 300), upd_stats=False)
     # it's weird to move yolo constants to aux_utils, can't be imported from here as it leads to circular import error
     gsa = {'gs': GRID_SIZES, 'anchors': ANCHORS}
     # show_img(pick(ds[0], **gsa))
