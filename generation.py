@@ -508,51 +508,44 @@ def load_dataset(transforms, part, root=PATH, data_name=DNAME, stats=True):
     data = get_data(json_object_path=os.path.join(root, data_name))
     loaded = [(load_image(os.path.join(root, local_path)), data) for local_path, data in data.items()][slice(*part)]
 
-    def semi_process(loaded_data, calculate_stats, split=(None, None, None)):
-        """I want to apply transforms in a single pass, that's memory inefficient thus requires batching"""
-        tensors_l, bboxes_l, labels_l = [], [], []
-        mean_rgb_, std_rgb_ = np.zeros(3), np.zeros(3)
-        for image, desc in loaded_data[slice(*split)]:
-            c_bbxs, c_idx = [], []
-            # [['Hexagon', [194, 144], [28.7, 28.7]], ['Rhombus', [42, 60], [55.8614, 55.8614]], ...]
-            for fig in desc:
-                # lay out bbox as (xcen, ycen, w, h) + normalized by global WH for yolo
-                bbox = list(map(lambda c: c / SIZE, fig[1] + fig[2]))
-                # we WILL encounter FP round-off errors 'thanks to' albumentations, may lead to vmin, vmax not in [0,1]
-                if bbox[0] - bbox[2] / 2 < EPS or bbox[0] + bbox[2] / 2 > 1 - EPS:
-                    bbox[2] = 2 * min(bbox[0], 1 - bbox[0])
-                elif bbox[1] - bbox[3] / 2 < EPS or bbox[1] + bbox[3] / 2 > 1 - EPS:
-                    bbox[3] = 2 * min(bbox[1], 1 - bbox[1])
-                c_bbxs.append(bbox)
-                c_idx.append(cname_to_id[fig[0]])
-            if calculate_stats:
-                # for now, images are hwc numpy arrays, mean over 2 axes (hw) at once to get RGB channel means
-                mean_rgb_ += np.mean(image, axis=(0, 1))
-                std_rgb_ += np.std(image, axis=(0, 1))
-            tensors_l.append(image)
-            bboxes_l.append(c_bbxs)
-            labels_l.append(c_idx)
-            # requires more than 8GB of RAM
-            # try:
-            #     transformed = transforms(image=image, bboxes=c_bbxs, cidx=c_idx)
-            # except ValueError:
-            #     print('error!', c_bbxs)
-            #     break
-            # tensors_l.append(transformed['image'])
-            # bboxes_l.append(transformed['bboxes'])
-            # labels_l.append(transformed['cidx'])
-        mean_rgb, std_rgb = map(lambda s: np.round((s/len(loaded_data))/255, 3).tolist(), (mean_rgb_, std_rgb_))
-        return tensors_l, bboxes_l, labels_l, mean_rgb, std_rgb
-
-    # chain nested lists
-    # tensors, bboxes, labels = chain(semi_process(loaded, (None, len(loaded)//2)), semi_process(loaded, (len(loaded)//2, None)))
-    tensors, bboxes, labels, mean_c, std_c = semi_process(loaded, calculate_stats=stats)
+    images, bboxes, labels = [], [], []
+    mean_rgb_, std_rgb_ = np.zeros(3), np.zeros(3)
+    for image, desc in loaded:
+        c_bbxs, c_idx = [], []
+        # [['Hexagon', [194, 144], [28.7, 28.7]], ['Rhombus', [42, 60], [55.8614, 55.8614]], ...]
+        for fig in desc:
+            # lay out bbox as (xcen, ycen, w, h) + normalized by global WH for yolo
+            bbox = list(map(lambda c: c / SIZE, fig[1] + fig[2]))
+            # we WILL encounter FP round-off errors 'thanks to' albumentations, may lead to vmin, vmax not in [0,1]
+            if bbox[0] - bbox[2] / 2 < EPS or bbox[0] + bbox[2] / 2 > 1 - EPS:
+                bbox[2] = 2 * min(bbox[0], 1 - bbox[0])
+            elif bbox[1] - bbox[3] / 2 < EPS or bbox[1] + bbox[3] / 2 > 1 - EPS:
+                bbox[3] = 2 * min(bbox[1], 1 - bbox[1])
+            c_bbxs.append(bbox)
+            c_idx.append(cname_to_id[fig[0]])
+        if stats:
+            # for now, images are hwc numpy arrays, mean over 2 axes (hw) at once to get RGB channel means
+            mean_rgb_ += np.mean(image, axis=(0, 1))
+            std_rgb_ += np.std(image, axis=(0, 1))
+        images.append(image)
+        bboxes.append(c_bbxs)
+        labels.append(c_idx)
+        # requires more than 8GB of RAM
+        # try:
+        #     transformed = transforms(image=image, bboxes=c_bbxs, cidx=c_idx)
+        # except ValueError:
+        #     print('error!', c_bbxs)
+        #     break
+        # tensors_l.append(transformed['image'])
+        # bboxes_l.append(transformed['bboxes'])
+        # labels_l.append(transformed['cidx'])
+    mean_c, std_c = map(lambda s: np.round((s/len(loaded))/255, 3).tolist(), (mean_rgb_, std_rgb_))
     print(f'{len(labels)} images, boxes, class indices have been loaded successfully.')
     if stats:
         print(f'Image distribution has per-channel (RGB) mean: {mean_c} and std: {std_c}')
     else:
         print('Image statistics has not been calculated, use builtins')
-    return tensors, bboxes, labels, mean_c, std_c
+    return images, bboxes, labels, mean_c, std_c
 
 
 id_to_class = [Circle, Rhombus, Rectangle, Triangle, Polygon]
