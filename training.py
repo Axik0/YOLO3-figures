@@ -8,13 +8,20 @@ from torch.utils.data import DataLoader as DL
 
 
 import os
-from generation import PATH
+from generation import PATH, AMOUNT
 CFP = os.path.join(PATH, 'checkpoints')
 CH_NAME = 'last_state.pt'
 
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+
+def splits(p, cap_length=AMOUNT):
+    """takes subset of limit_length, generates 2 slices splitting it on two non-intersecting consequent parts,
+        proportion p relates to the proportion of first part to limit_length, the rest is 2nd part"""
+    assert 0 < p <= 1, f'Provided {p} proportion is incorrect'
+    assert 0 < cap_length <= AMOUNT, f'Provided {cap_length} is beyond limits'
+    return slice(None, int(cap_length * p)), slice(int(cap_length * p), cap_length)
 
 def save_ch(model, optimizer, curr_loss, curr_epoch, folder_path=CFP, name=CH_NAME):
     """saves internal state of model and optimizer"""
@@ -37,6 +44,9 @@ def load_ch(model, optimizer, path=os.path.join(CFP, CH_NAME)):
         checkpoint = torch.load(path)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        epoch = checkpoint['epoch']
+        loss = checkpoint['loss']
+        print(f'Loaded checkpoint at Epoch:{epoch} with loss{loss}')
     except FileNotFoundError:
         print(f'no checkpoint there {path}')
 
@@ -69,7 +79,7 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
                     loss.backward()
                     optimizer.step()
             avg_loss = torch.mean(torch.stack(losses))
-            dataloader.set_postfix_str(f'Train loss {avg_loss.item():.2e}', refresh=True)
+            dataloader.set_postfix_str(f'Train loss {losses[-1].item():.2e}', refresh=True)
         return avg_loss if agg else losses
 
 

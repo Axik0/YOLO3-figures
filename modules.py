@@ -38,7 +38,7 @@ class FiguresDataset(VisionDataset):
         # each of 3 scales has grid_size and set of 3 anchors
         self.grid_sizes = gs
         assert self.nan_per_scale == len(self.grid_sizes), "#anchors doesn't coincide with #grid sizes"
-        self.images, self.bboxes, self.c_idx, mean_c, std_c = load_dataset(transforms=None, part=part, stats=upd_stats)
+        self.images, self.bboxes, self.c_idx, mean_c, std_c = load_dataset(transforms=None, part_slice=part, stats=upd_stats)
         assert len(self.images) == len(self.bboxes), 'wrong dataset generation, please retry'
         # calculate per-channel mean and std (over whole dataset, slow) while loading or just use pre-calculated
         self.mean, self.std = (mean_c, std_c) if upd_stats else [0.641, 0.612, 0.596], [0.115, 0.11, 0.11]
@@ -120,9 +120,9 @@ class YOLOLoss(nn.Module):
 
         # losses are weighed (4 hyperparameters)
         self.la_cls = 1
-        self.la_prs = 1
+        self.la_prs = 10 #1
         self.la_abs = 10
-        self.la_box = 10
+        self.la_box = 1 #10
 
     def forward(self, pred_s, tar_s, scale):
         """called separately at each of 3 scales, torch-compliant"""
@@ -149,7 +149,7 @@ class YOLOLoss(nn.Module):
         no_loss = self.bce(pred_s[..., 0:1][nobj], tar_s[..., 0:1][nobj])
         # class loss: takes C logits, outputs single number, compared w/ target class
         ca_loss = self.ent(pred_s[..., 5:][yobj], tar_s[..., 5][yobj].long())
-        # print(no_loss, yo_loss, bo_loss)
+        # print(no_loss, yo_loss, bo_loss, ca_loss)
         return self.la_abs * no_loss + self.la_prs * yo_loss + self.la_box * bo_loss + self.la_cls * ca_loss
 
 

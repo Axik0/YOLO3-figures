@@ -46,6 +46,7 @@ TNAME = 'temp.json'
 
 EPS = 1E-10
 
+AMOUNT = 10000
 SIZE = 256
 # 25++ because inscribed objects might be smaller
 THR = 25 + 20
@@ -502,12 +503,12 @@ def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
     return img_to_show
 
 
-def load_dataset(transforms, part, root=PATH, data_name=DNAME, stats=True):
+def load_dataset(transforms, part_slice, root=PATH, data_name=DNAME, stats=True):
     """requires at least ToTensorV2 transformation, outputs 3 lists - images, bounding boxes, figure indices
     , applying those transformations is memory inefficient, can't be solved with 8Gb RAM only"""
     data = get_data(json_object_path=os.path.join(root, data_name))
-    loaded = [(load_image(os.path.join(root, local_path)), data) for local_path, data in data.items()][slice(*part)]
-
+    # despite dict is an ordered dict (I won't get random subset for train/test), I don't want to load any extra data
+    loaded = [(load_image(os.path.join(root, lp)), data[lp]) for lp in tuple(data.keys())[part_slice]]
     images, bboxes, labels = [], [], []
     mean_rgb_, std_rgb_ = np.zeros(3), np.zeros(3)
     for image, desc in loaded:
