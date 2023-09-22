@@ -94,9 +94,10 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, de
         avg_train_loss = run(model, dataloader_train_, loss_fn, scaler=scaler, optimizer=optimizer, device=device)
         saved = save_ch(model, optimizer, curr_loss=avg_train_loss, curr_epoch=e)
         if saved:
-            epochs_.write('checkpoint at {e} epoch saved')
+            epochs_.write(f'checkpoint at {e}-th epoch saved')
         if e % eup == 0 and dataloader_test is not None:
-            avg_test_loss = run(model, dataloader_test, loss_fn, scaler=scaler, device=device)
+            dataloader_test_ = tqdm(dataloader_test, desc='Testing: ', colour='blue', position=2, leave=True)
+            avg_test_loss = run(model, dataloader_test_, loss_fn, scaler=scaler, device=device)
             epochs_.set_description(f'Test loss {avg_test_loss:.2e}', refresh=True)
 
 
