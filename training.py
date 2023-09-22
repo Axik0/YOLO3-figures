@@ -54,12 +54,12 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
                 p = model(x)
                 loss_sc = [loss_fn(pred_s=p[s], tar_s=y[s], scale=s) for s in range(3)]
                 loss = torch.sum(torch.stack(loss_sc, dim=0), dim=0)
-            losses.append(loss.item())
+            losses.append(torch.mean(loss.item()))  # average current batch's loss
             # backward pass
             if optimizer:
                 optimizer.zero_grad()
-                # scales loss before backprop
                 if scaler and device != 'cpu':  # GradScaler doesn't support CPU
+                    # scales loss before backprop to help mixed precision
                     scaler.scale(loss).backward()
                     # unscales gradient steps within optimizer
                     scaler.step(optimizer)
@@ -69,7 +69,7 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
                     loss.backward()
                     optimizer.step()
             dataloader.set_postfix_str(f'Train loss {losses[-1]:.2e}', refresh=True)
-        return torch.mean(torch.stack(losses, dim=0)).item() if agg else losses
+        return torch.mean(torch.stack(losses, dim=0)) if agg else losses
 
 
 def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, device=DEVICE, dataloader_test=None, eup=2):
