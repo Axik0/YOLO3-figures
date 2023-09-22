@@ -54,7 +54,7 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
                 p = model(x)
                 loss_sc = [loss_fn(pred_s=p[s], tar_s=y[s], scale=s) for s in range(3)]
                 loss = torch.sum(torch.stack(loss_sc, dim=0), dim=0)
-            losses.append(torch.mean(loss.item()))  # average current batch's loss
+            losses.append(loss.detach())  # average current batch's loss tensor
             # backward pass
             if optimizer:
                 optimizer.zero_grad()
@@ -68,8 +68,9 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
                 else:
                     loss.backward()
                     optimizer.step()
-            dataloader.set_postfix_str(f'Train loss {losses[-1]:.2e}', refresh=True)
-        return torch.mean(torch.stack(losses, dim=0)) if agg else losses
+            avg_loss = torch.mean(torch.stack(losses))
+            dataloader.set_postfix_str(f'Train loss {avg_loss.item():.2e}', refresh=True)
+        return avg_loss if agg else losses
 
 
 def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, device=DEVICE, dataloader_test=None, eup=2):
