@@ -15,6 +15,8 @@ CH_NAME = 'last_state.pt'
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+palette = ["#bce784", "#5dd39e", "#348aa7"]  # custom tqdm colour palette
+
 
 def splits(p, cap_length=AMOUNT):
     """takes subset of limit_length, generates 2 slices splitting it on two non-intersecting consequent parts,
@@ -22,6 +24,7 @@ def splits(p, cap_length=AMOUNT):
     assert 0 < p <= 1, f'Provided {p} proportion is incorrect'
     assert 0 < cap_length <= AMOUNT, f'Provided {cap_length} is beyond limits'
     return slice(None, int(cap_length * p)), slice(int(cap_length * p), cap_length)
+
 
 def save_ch(model, optimizer, curr_loss, curr_epoch, folder_path=CFP, name=CH_NAME):
     """saves internal state of model and optimizer"""
@@ -79,7 +82,7 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
                     loss.backward()
                     optimizer.step()
             avg_loss = torch.mean(torch.stack(losses))
-            dataloader.set_postfix_str(f'Train loss {losses[-1].item():.2e}', refresh=True)
+            dataloader.set_postfix_str(f'Current loss {losses[-1].item():.2e}', refresh=True)
         return avg_loss if agg else losses
 
 
@@ -88,17 +91,20 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, de
         eup = epoch progress bar's description update period, anything >= 0"""
     model = model.to(device=device)
     loss_fn = loss_fn.to(device=device)    # as it's stateful, has built-in hyperparameters (weighing parts of loss)
-    epochs_ = tnrange(n_epochs, desc='Epoch: ', position=0, leave=True)
-    dataloader_train_ = tqdm(dataloader_train, desc='Batch: ', colour='green', position=1, leave=True)
+    epochs_ = tnrange(n_epochs, desc='Epoch: ', colour=palette[2], position=0, leave=True)
+    dataloader_train_ = tqdm(dataloader_train, desc='Batch: ', colour=palette[1], position=1, leave=True)
     for e in epochs_:
         avg_train_loss = run(model, dataloader_train_, loss_fn, scaler=scaler, optimizer=optimizer, device=device)
         saved = save_ch(model, optimizer, curr_loss=avg_train_loss, curr_epoch=e)
         if saved:
-            epochs_.write(f'checkpoint at {e}-th epoch saved')
+            epochs_.write(f'checkpoint after {e+1} epoch saved')
         if e % eup == 0 and dataloader_test is not None:
-            dataloader_test_ = tqdm(dataloader_test, desc='Testing: ', colour='blue', position=2, leave=True)
+            dataloader_test_ = tqdm(dataloader_test, desc='Testing: ', colour=palette[0], position=2, leave=True)
             avg_test_loss = run(model, dataloader_test_, loss_fn, scaler=scaler, device=device)
             epochs_.set_description(f'Test loss {avg_test_loss:.2e}', refresh=True)
+            dataloader_test_.close()
+        dataloader_train_.reset()
+
 
 
 if __name__ == '__main__':
