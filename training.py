@@ -1,8 +1,11 @@
-"""training and related scripts"""
-from tqdm.notebook import tqdm, tnrange
+"""Contains training-related functions, this script is intended to be imported and run from jupyter notebook
+"""
+
 import torch
-from torch.utils.data import DataLoader as DL
 from contextlib import nullcontext
+from tqdm.notebook import tqdm, tnrange  # otherwise it keeps adding new lines at each iteration
+from torch.utils.data import DataLoader as DL
+
 
 import os
 from generation import PATH
@@ -14,7 +17,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 def save_ch(model, optimizer, curr_loss, curr_epoch, folder_path=CFP, name=CH_NAME):
-    """saves state of model and optimizer"""
+    """saves internal state of model and optimizer"""
     checkpoint = {'epoch': curr_epoch,
                   'state_dict': model.state_dict(),
                   'optimizer': optimizer.state_dict(),
@@ -39,13 +42,14 @@ def load_ch(model, optimizer, path=os.path.join(CFP, CH_NAME)):
 
 
 def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=True):
-    """single universal (forward + optional backward) pass, mean aggregation over dataset by default as an output"""
+    """single universal (forward + optional backward) pass,
+    loss mean aggregation (over dataset) is set up as a default output"""
     losses = []
     model.train() if optimizer else model.eval()
     with nullcontext() if optimizer else torch.inference_mode():
         for img, tar in dataloader:
             x, y = img.to(device), (tar[0].to(device), tar[1].to(device), tar[2].to(device))
-            # forward pass within mixed precision context (casts to lower precision if possible)
+            # forward pass within mixed precision context (casts to lower precision dtype if possible)
             with torch.autocast(device) if scaler else nullcontext():
                 p = model(x)
                 loss_sc = [loss_fn(pred_s=p[s], tar_s=y[s], scale=s) for s in range(3)]
@@ -55,7 +59,7 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
             if optimizer:
                 optimizer.zero_grad()
                 # scales loss before backprop
-                if scaler and device != 'cpu':
+                if scaler and device != 'cpu':  # GradScaler doesn't support CPU
                     scaler.scale(loss).backward()
                     # unscales gradient steps within optimizer
                     scaler.step(optimizer)
@@ -68,18 +72,18 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
         return torch.mean(torch.stack(losses, dim=0)).item() if agg else losses
 
 
-def train(model, dataloader_train, dataloader_test, loss_fn, optimizer, n_epochs, scaler=None, device=DEVICE):
-    """model training w/ evaluation on test dataset"""
+def train(model, dataloader_train, loss_fn, optimizer, n_epochs, dataloader_test=None, scaler=None, device=DEVICE, eup=2):
+    """model training w/ possible evaluation if test dataset is provided
+        eup = epoch progress bar's description update period, anything >= 0"""
     model = model.to(device=device)
     epochs_ = tnrange(n_epochs, desc='Epoch: ', position=0, leave=True)
     dataloader_train_ = tqdm(dataloader_train, desc='Batch: ', colour='green', position=1, leave=True)
-    ss = 2  # description update period
     for e in epochs_:
         avg_train_loss = run(model, dataloader_train_, loss_fn, scaler=scaler, optimizer=optimizer, device=device)
         saved = save_ch(model, optimizer, curr_loss=avg_train_loss, curr_epoch=e)
         if saved:
             epochs_.write('checkpoint at {e} epoch saved')
-        if e % ss == 0:
+        if e % eup == 0 and dataloader_test is not None:
             avg_test_loss = run(model, dataloader_test, loss_fn, scaler=scaler, device=device)
             epochs_.set_description(f'Test loss {avg_test_loss:.2e}', refresh=True)
 
@@ -88,8 +92,7 @@ if __name__ == '__main__':
     from model import YOLO3
     from modules import FiguresDataset, YOLOLoss
 
-    LR = 1E-5
-    NUM_EPOCHS = 300
+    LR = 1E-3
 
     # loading data
     ds_train = FiguresDataset(part=(None, 1000))
@@ -101,5 +104,3 @@ if __name__ == '__main__':
     y_loss = YOLOLoss()
     optim = torch.optim.Adam(y_model.parameters(), lr=LR)
     scaler = torch.cuda.amp.GradScaler()
-    # actual processing
-    # train(y_model, train_l, test_l, y_loss, optim, device=DEVICE, n_epochs=NUM_EPOCHS)
