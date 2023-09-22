@@ -72,10 +72,11 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
         return torch.mean(torch.stack(losses, dim=0)).item() if agg else losses
 
 
-def train(model, dataloader_train, loss_fn, optimizer, n_epochs, dataloader_test=None, scaler=None, device=DEVICE, eup=2):
+def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, device=DEVICE, dataloader_test=None, eup=2):
     """model training w/ possible evaluation if test dataset is provided
         eup = epoch progress bar's description update period, anything >= 0"""
     model = model.to(device=device)
+    loss_fn = loss_fn.to(device=device)    # as it's stateful, has built-in hyperparameters (weighing parts of loss)
     epochs_ = tnrange(n_epochs, desc='Epoch: ', position=0, leave=True)
     dataloader_train_ = tqdm(dataloader_train, desc='Batch: ', colour='green', position=1, leave=True)
     for e in epochs_:
