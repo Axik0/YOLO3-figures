@@ -92,19 +92,16 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, de
     model = model.to(device=device)
     loss_fn = loss_fn.to(device=device)    # as it's stateful, has built-in hyperparameters (weighing parts of loss)
     epochs_ = tnrange(n_epochs, desc='Epoch: ', colour=palette[2], position=0, leave=True)
-    dataloader_train_ = tqdm(dataloader_train, desc='Batch: ', colour=palette[1], position=1)
     for e in epochs_:
+        dataloader_train_ = tqdm(dataloader_train, desc=' Batch: ', colour=palette[1], position=1, leave=False)
         avg_train_loss = run(model, dataloader_train_, loss_fn, scaler=scaler, optimizer=optimizer, device=device)
         saved = save_ch(model, optimizer, curr_loss=avg_train_loss, curr_epoch=e)
         if saved:
             epochs_.write(f'checkpoint after {e+1} epoch saved')
-        if e % eup == 0 and dataloader_test is not None:
-            dataloader_test_ = tqdm(dataloader_test, desc='Testing: ', colour=palette[0], position=2)
+        if (e + 1) % eup == 0 and dataloader_test is not None:
+            dataloader_test_ = tqdm(dataloader_test, desc='Testing: ', colour=palette[0], position=2, leave=False)
             avg_test_loss = run(model, dataloader_test_, loss_fn, scaler=scaler, device=device)
             epochs_.set_description(f'Test loss {avg_test_loss:.2e}', refresh=True)
-            dataloader_test_.close()
-        dataloader_train_.reset()
-
 
 
 if __name__ == '__main__':
