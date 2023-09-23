@@ -15,7 +15,7 @@ CH_NAME = 'last_state.pt'
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-palette = ["#bce784", "#5dd39e", "#348aa7"]  # custom tqdm colour palette
+palette = ["#eca0ff", "#aab2ff", "#84ffc9"]  # custom tqdm colour palette
 
 
 def splits(p, cap_length=AMOUNT):
@@ -45,11 +45,12 @@ def load_ch(model, optimizer, path=os.path.join(CFP, CH_NAME)):
     """loads previous state to model, optimizer"""
     try:
         checkpoint = torch.load(path)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        model.load_state_dict(checkpoint['state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
         epoch = checkpoint['epoch']
         loss = checkpoint['loss']
-        print(f'Loaded checkpoint at Epoch:{epoch} with loss{loss}')
+        print(f'Checkpoint at epoch {epoch} with loss {loss:.2f} has been loaded')
+        return int(epoch)
     except FileNotFoundError:
         print(f'no checkpoint there {path}')
 
@@ -86,15 +87,17 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
         return avg_loss if agg else losses
 
 
-def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, device=DEVICE, dataloader_test=None, eup=2):
+def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, device=DEVICE, dataloader_test=None, eup=2, load=False):
     """model training w/ possible evaluation if test dataset is provided
         eup = epoch progress bar's description update period, anything >= 0"""
+    loaded_epoch = load_ch(model, optimizer) if load else 0     # inplace loader
     model = model.to(device=device)
     loss_fn = loss_fn.to(device=device)    # as it's stateful, has built-in hyperparameters (weighing parts of loss)
-    epochs_ = tnrange(n_epochs, desc='Epoch: ', colour=palette[2], position=0, leave=True)
+    epochs_ = tnrange(*(loaded_epoch + 1, n_epochs), desc='Epoch: ', colour=palette[2], position=0, leave=True)
     for e in epochs_:
-        dataloader_train_ = tqdm(dataloader_train, desc=' Batch: ', colour=palette[1], position=1, leave=False)
+        dataloader_train_ = tqdm(dataloader_train, desc='  Batch: ', colour=palette[1], position=1, leave=False)
         avg_train_loss = run(model, dataloader_train_, loss_fn, scaler=scaler, optimizer=optimizer, device=device)
+        # save checkpoint after each epoch
         saved = save_ch(model, optimizer, curr_loss=avg_train_loss, curr_epoch=e)
         if saved:
             epochs_.write(f'checkpoint after {e+1} epoch saved')
@@ -102,6 +105,8 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, de
             dataloader_test_ = tqdm(dataloader_test, desc='Testing: ', colour=palette[0], position=2, leave=False)
             avg_test_loss = run(model, dataloader_test_, loss_fn, scaler=scaler, device=device)
             epochs_.set_description(f'Test loss {avg_test_loss:.2e}', refresh=True)
+        else:
+            epochs_.set_description(f'Train loss {avg_train_loss:.2e}', refresh=True)
 
 
 if __name__ == '__main__':

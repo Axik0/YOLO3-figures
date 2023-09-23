@@ -111,18 +111,18 @@ class FiguresDataset(VisionDataset):
 
 
 class YOLOLoss(nn.Module):
-    def __init__(self):
-        """combined regressor/classifier loss"""
+    def __init__(self, l_cls=1, l_prs=10, l_abs=10, l_box=1):
+        """weighed regressor & classifier loss"""
         super().__init__()
         self.mse = nn.MSELoss()  # for regression - box predictions
         self.bce = nn.BCEWithLogitsLoss()  # object presence/absence
         self.ent = nn.CrossEntropyLoss()  # for classes, we could use BCE but each box has just one class, no multilabel
 
         # losses are weighed (4 hyperparameters)
-        self.la_cls = 1
-        self.la_prs = 10 #1
-        self.la_abs = 10
-        self.la_box = 1 #10
+        self.la_cls = l_cls
+        self.la_prs = l_prs
+        self.la_abs = l_abs     # 10 originally
+        self.la_box = l_box     # 10 originally
 
     def forward(self, pred_s, tar_s, scale):
         """called separately at each of 3 scales, torch-compliant"""
