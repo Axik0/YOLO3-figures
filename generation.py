@@ -503,6 +503,14 @@ def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
     return img_to_show
 
 
+def get_boxes(root=PATH, data_name=DNAME):
+    """extracts width and height of all boxes within generated dataset,
+        normalizes by image size, outputs list of tuples i.e. [(w1, h1), (w2, h2), ...]"""
+    data = get_data(json_object_path=os.path.join(root, data_name))
+    # scan descriptions (d), then scan figures, take width and height only
+    return [tuple(map(lambda c: c / SIZE, f[2])) for d in data.values() for f in d]
+
+
 def load_dataset(transforms, part_slice, root=PATH, data_name=DNAME, stats=True):
     """requires at least ToTensorV2 transformation, outputs 3 lists - images, bounding boxes, figure indices
     , applying those transformations is memory inefficient, can't be solved with 8Gb RAM only"""

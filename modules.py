@@ -8,15 +8,29 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
 from generation import load_dataset, PATH, EPS
-from aux_utils import iou, iou_pairwise, raw_transform, show_img, sample, pick
+from aux_utils import iou, iou_pairwise, raw_transform, show_img, sample, pick, get_anchors
 
 YOLO_SIZE = 416
 # 3 feature maps at 3 different scales based on YOLOv3 paper
 GRID_SIZES = (YOLO_SIZE // 32, YOLO_SIZE // 16, YOLO_SIZE // 8)
+# ANCHORS = (
+#     ((0.28, 0.22), (0.38, 0.48), (0.9, 0.78)),
+#     ((0.07, 0.15), (0.15, 0.11), (0.14, 0.29)),
+#     ((0.02, 0.03), (0.04, 0.07), (0.08, 0.06)),
+# )
+
 ANCHORS = (
-    ((0.28, 0.22), (0.38, 0.48), (0.9, 0.78)),
-    ((0.07, 0.15), (0.15, 0.11), (0.14, 0.29)),
-    ((0.02, 0.03), (0.04, 0.07), (0.08, 0.06)),
+    ((0.22838012478569927, 0.37234857956035894),
+     (0.30127089816065944, 0.30470957552855793),
+     (0.36307149222721874, 0.36530570814002944)),
+
+    ((0.19109910688669632, 0.2804814482464234),
+     (0.2570033528878385, 0.25741008305321017),
+     (0.3500616294989826, 0.20384630961828798)),
+
+    ((0.13782940739183006, 0.13803015194462828),
+     (0.17738931739948338, 0.17951509178104036),
+     (0.21803462084789216, 0.21450175377012273))
 )
 
 DEFAULT_TR = [A.Resize(YOLO_SIZE, YOLO_SIZE), ToTensorV2()]

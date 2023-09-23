@@ -6,8 +6,11 @@ import torch
 import torchvision
 
 import matplotlib.pyplot as plt
-from generation import id_to_cname, EPS
+import seaborn as sns
+from generation import id_to_cname, EPS, get_boxes
 from itertools import chain
+
+from sklearn.cluster import KMeans
 
 
 def show_img(tensor_chw):
@@ -19,7 +22,7 @@ def show_img(tensor_chw):
 def vertex_repr(bbox):
     """converts from (x_center, y_center, w, h) to minimal-maximal vertex representation"""
     xc, yc, w, h = bbox
-    vertex_min, vertex_max = (xc - w/2, yc - h/2), (xc + w/2, yc + h/2)
+    vertex_min, vertex_max = (xc - w / 2, yc - h / 2), (xc + w / 2, yc + h / 2)
     return vertex_min, vertex_max
 
 
@@ -27,6 +30,10 @@ def iou(base_box, list_of_boxes):
     """treats bbox as (x_center, y_center, w, h), most likely normalized to [0..1],
     calculates areas of intersection and union for each box in the list, outputs list of IoU scores in [0..1]"""
     ious = []
+    if len(base_box) == 2:
+        # add up center coordinates (as if they are all shifted to the origin) to get full tuple of 4
+        list_of_boxes_ = list(map(lambda bb_: (bb_[0] / 2, bb_[1] / 2, *bb_), list_of_boxes + [base_box]))
+        list_of_boxes, base_box = list_of_boxes_[:-1], list_of_boxes_[-1]
     # represent boxes with their minmax vertices + calculate an area in a single pass
     vr = list(map(lambda bb: (*vertex_repr(bb), bb[2] * bb[3]), list_of_boxes + [base_box]))
     vmi_0, vma_0, area_0 = vr.pop()
@@ -39,16 +46,88 @@ def iou(base_box, list_of_boxes):
         # get aou ~ sum of areas -- aoi (not to count twice)
         aou_0b = area_0 + area_b - aoi_0b
         assert aou_0b != 0, 'some of boxes have 0 width or height, incorrect input'
-        iou_0b = aoi_0b/aou_0b
+        iou_0b = aoi_0b / aou_0b
         ious.append(iou_0b)
     return ious
 
 
+class KIoU(KMeans):
+    """custom override using IoU instead of Euclidean distance as a metric"""
+
+    def __init__(self, n_clusters=8, *, init="k-means++", n_init='auto', max_iter=300, tol=1e-4, verbose=0,
+                 random_state=None, copy_x=True, algorithm="lloyd"):
+        super().__init__(n_clusters=n_clusters, init=init, n_init=n_init, max_iter=max_iter, tol=tol,
+                         verbose=verbose, random_state=random_state, copy_x=copy_x, algorithm=algorithm)
+
+    def _transform(self, X):
+        # yeah, not an error, this method should return similarity score, not the distance: higher => better
+        return iou_pairwise(torch.tensor(X), torch.tensor(self.cluster_centers_)).numpy()
+
+
+def get_anchors(a_quantity, plot=True):
+    """this functions analyzes all bboxes from available dataset using 'Kmeans' algorithm with IoU as a metric,
+        outputs as many clusters as anchors you need, shapes them according to original YOLO's """
+    boxes_list = get_boxes()
+
+    km = KIoU(n_clusters=a_quantity)
+    labels = km.fit(boxes_list)  # array of labels for each point
+    centroids = labels.cluster_centers_  # centroid points
+
+    if plot:
+        palette_14 = ['#8a00d4', '#d527b7', '#f782c2', '#f9c46b', '#454d66',
+                      '#309975', '#58b368', '#dad873', '#e74645',
+                      '#122c91', '#2a6fdb', '#48d6d2', '#48d6d2', '#f5487f']
+        # split by axis on two lists before plotting
+        w, h = zip(*boxes_list)
+        cw, ch = zip(*centroids)
+        sns.set(rc={'figure.figsize': (10, 10)})
+        ax1 = sns.scatterplot(x=w, y=h, hue=labels.labels_, s=6, alpha=0.5, palette=palette_14[:a_quantity])
+        ax2 = sns.scatterplot(x=cw, y=ch, s=100, c=palette_14[:a_quantity])
+        plt.title(f'IoU K-means among all bounding boxes')
+        plt.xlabel('Width/im_size')
+        plt.ylabel('Height/im_size')
+        plt.show()
+
+    # same treatment doesn't change original anchors, that's why
+    c_sorting_indices = np.apply_along_axis(lambda wh: wh[0] + wh[1], axis=1, arr=centroids).argsort()  # sort by key
+    return [s.tolist() for s in np.split(centroids[c_sorting_indices], 3)[::-1]]
+
+
+# def iou_pairwise(tensor_1, tensor_2):
+#     """vectorized pairwise iou computation, returns tensor with all but last dimensions same, input
+#     tensors must have same shape & last dimension = 4 (describes a box)"""
+#     assert tensor_1.shape == tensor_2.shape, "wrong input tensors, shape mismatch"
+#     assert tensor_1.shape[-1] == 4, "last dimension is not 4, unable to process"
+#     # calculate areas
+#     area_1, area_2 = tensor_1[..., 2:3] * tensor_1[..., 3:4], tensor_2[..., 2:3] * tensor_2[..., 3:4]
+#     # switch to vertex_representation
+#     vmi_1, vma_1 = tensor_1[..., 0:2] - 0.5 * tensor_1[..., 2:4], tensor_1[..., 0:2] + 0.5 * tensor_1[..., 2:4]
+#     vmi_2, vma_2 = tensor_2[..., 0:2] - 0.5 * tensor_2[..., 2:4], tensor_2[..., 0:2] + 0.5 * tensor_2[..., 2:4]
+#     # get aoi, nearest max vertex - farthest min vertex, elementwise min max in torch
+#     dx = torch.minimum(vma_1[..., 0:1], vma_2[..., 0:1]) - torch.maximum(vmi_1[..., 0:1], vmi_2[..., 0:1])
+#     dy = torch.minimum(vma_1[..., 1:], vma_2[..., 1:]) - torch.maximum(vmi_1[..., 1:], vmi_2[..., 1:])
+#     aoi = dx * dy
+#     dx_n_dy_mask = dx + dy == 0
+#     aoi[dx_n_dy_mask] = 0  # mask out aoi when dx/dy are zero
+#     aou = area_1 + area_2 - aoi
+#     aou[area_1 + area_2 == 0] = EPS  # just in case, not to get zero-division
+#     return aoi/aou
+
+
 def iou_pairwise(tensor_1, tensor_2):
-    """vectorized pairwise iou computation, returns tensor with all but last dimensions same, input
-    tensors must have same shape & last dimension = 4 (describes a box)"""
-    assert tensor_1.shape == tensor_2.shape, "wrong input tensors, shape mismatch"
+    """vectorized pairwise iou computation, capable of processing inputs with 1-st dim mismatch:
+    # tensor_1 = K, Y, 4 --> new axis --> K, 1, Y, 4 --> broadcast 1 to L cols --> K, L, Y, 4
+    # tensor_2 = L, Y, 4 --> new axis --> 1, L, Y, 4 --> broadcast 1 to K rows --> K, L, Y, 4
+    returns [K, L, Y, 1]-tensor aka matrix, keeping intermediate shape Y intact or
+    [K, Y, 1] - tensor corresponding to diagonal of square matrix by a 1st pair of dims when K=L
+    NB input tensors must have same Y and last dimension = 4 (describes a box)
+    This function has been tested to provide identical results to its predecessor on random tensors w/ same shape"""
     assert tensor_1.shape[-1] == 4, "last dimension is not 4, unable to process"
+    assert tensor_1.shape[1:] == tensor_2.shape[1:], \
+        f"shape mismatch, input {tensor_1.shape} differs from {tensor_2.shape} in more than 2 dimensions, stop"
+    matrix_out = tensor_1.shape if tensor_1.shape[0] != tensor_2.shape[0] else False
+    # treat both tensors as if they have different 1st dimension
+    tensor_1, tensor_2 = tensor_1.unsqueeze(0), tensor_2.unsqueeze(1)
     # calculate areas
     area_1, area_2 = tensor_1[..., 2:3] * tensor_1[..., 3:4], tensor_2[..., 2:3] * tensor_2[..., 3:4]
     # switch to vertex_representation
@@ -62,7 +141,10 @@ def iou_pairwise(tensor_1, tensor_2):
     aoi[dx_n_dy_mask] = 0  # mask out aoi when dx/dy are zero
     aou = area_1 + area_2 - aoi
     aou[area_1 + area_2 == 0] = EPS  # just in case, not to get zero-division
-    return aoi/aou
+    iou = aoi / aou
+    # iou here is [K, L, Y, 1]-shaped matrix (judging by first 2 dimensions),
+    # we have to return its diagonal for square case (L=K) which is [Y, 1, K] --> [K, Y, 1]
+    return iou if matrix_out else iou.diagonal().permute(-1, *range(iou.ndim - 1)[:-1])
 
 
 def raw_transform(raw_net_out_s, anchors_s, partial=False):
@@ -106,10 +188,11 @@ def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
         # calculate absolute width and height, then assign
         new_tl[..., 3:5][present_s] = tar_like[s][..., 3:5][present_s] / gs[s]
         # we don't need other dimensions anymore, reshape to (#found, 6) and save params, labels and scales for colours
-        boxes_s, labels_s = new_tl[present_s].reshape(-1, 6)[:, 1:5].tolist(), new_tl[present_s].reshape(-1, 6)[:, 5].tolist()
+        boxes_s, labels_s = new_tl[present_s].reshape(-1, 6)[:, 1:5].tolist(), new_tl[present_s].reshape(-1, 6)[:,
+                                                                               5].tolist()
         boxes.append(boxes_s)
         labels.append(labels_s)
-        scale_idx.append([s] * len(labels_s))    # denotes detection on different scales (by color or so)
+        scale_idx.append([s] * len(labels_s))  # denotes detection on different scales (by color or so)
     return boxes[limit], labels[limit], scale_idx[limit]
 
 
@@ -122,18 +205,19 @@ def pick(element, gs, anchors, raw=False):
     # data may contain nested lists (for each scale), detect and flatten them
     # not 'raw', data[1][0] could either be 1st scale bb list/tuple or 1st label in list of labels (thus float)
     bbxs, lls, sidx = map(lambda t: t if isinstance(data[1][0], float) else list(chain(*t)), data)
-    palette = ['#092327', '#0b5351', '#00a9a5']     # darkest colour first
+    palette = ['#092327', '#0b5351', '#00a9a5']  # darkest colour first
 
     def pixel_v(bbox):
         """transform bbox from absolute to relative: change representation, flatten and scale bbox to IMAGE_SIZE"""
         return list(map(lambda x: 416 * x, chain(*vertex_repr(bbox))))
+
     # transform box coordinates, get labels
     bboxes, labels, colors = zip(*[(pixel_v(b), id_to_cname[int(l)], palette[i]) for b, l, i in zip(bbxs, lls, sidx)])
     tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor,
                                                            boxes=torch.tensor(bboxes),
                                                            labels=labels,
-                                                           colors=list(colors),   # doesn't accept tuples, bug to report
-                                                        )
+                                                           colors=list(colors),  # doesn't accept tuples, bug to report
+                                                           )
     return tensor_w_boxes
 
 

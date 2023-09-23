@@ -82,7 +82,7 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
                 else:
                     loss.backward()
                     optimizer.step()
-            avg_loss = torch.mean(torch.stack(losses))
+            avg_loss = torch.mean(torch.stack(losses)).item()
             dataloader.set_postfix_str(f'Current loss {losses[-1].item():.2e}', refresh=True)
         return avg_loss if agg else losses
 
@@ -100,7 +100,7 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, de
         # save checkpoint after each epoch
         saved = save_ch(model, optimizer, curr_loss=avg_train_loss, curr_epoch=e+1)
         if saved:
-            epochs_.write(f'checkpoint after {e+1} epoch saved')
+            epochs_.write(f'checkpoint after {e + 1} epoch saved')
         if (e + 1) % eup == 0 and dataloader_test is not None:
             dataloader_test_ = tqdm(dataloader_test, desc='Testing: ', colour=palette[0], position=2, leave=False)
             avg_test_loss = run(model, dataloader_test_, loss_fn, scaler=scaler, device=device)
