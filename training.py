@@ -27,7 +27,7 @@ def splits(p, cap_length=AMOUNT):
 
 
 def save_ch(model, optimizer, curr_loss, curr_epoch, folder_path=CFP, name=CH_NAME):
-    """saves internal state of model and optimizer"""
+    """saves internal state of model and optimizer, !huge, requires, 0.5Gb space!"""
     checkpoint = {'epoch': curr_epoch,
                   'state_dict': model.state_dict(),
                   'optimizer': optimizer.state_dict(),
@@ -93,12 +93,12 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, de
     loaded_epoch = load_ch(model, optimizer) if load else 0     # inplace loader
     model = model.to(device=device)
     loss_fn = loss_fn.to(device=device)    # as it's stateful, has built-in hyperparameters (weighing parts of loss)
-    epochs_ = tnrange(*(loaded_epoch + 1, n_epochs), desc='Epoch: ', colour=palette[2], position=0, leave=True)
+    epochs_ = tnrange(*(loaded_epoch, n_epochs), desc='Epoch: ', colour=palette[2], position=0, leave=True)
     for e in epochs_:
         dataloader_train_ = tqdm(dataloader_train, desc='  Batch: ', colour=palette[1], position=1, leave=False)
         avg_train_loss = run(model, dataloader_train_, loss_fn, scaler=scaler, optimizer=optimizer, device=device)
         # save checkpoint after each epoch
-        saved = save_ch(model, optimizer, curr_loss=avg_train_loss, curr_epoch=e)
+        saved = save_ch(model, optimizer, curr_loss=avg_train_loss, curr_epoch=e+1)
         if saved:
             epochs_.write(f'checkpoint after {e+1} epoch saved')
         if (e + 1) % eup == 0 and dataloader_test is not None:
