@@ -168,7 +168,7 @@ def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
     already lost (as 'their' anchors+cells have been already taken) or we may have 1 bbox at all 3 scales
     NB2: [..., 0] = -1 is treated same way as zeros [..., 0] = 0 (for visualization at least)"""
     tl_length = len(tar_like)
-    limit = slice(None) if raw else 0  # we don't need all 3 scales for targers, they are same (up to permutation)
+    limit = slice(None) if raw else 0  # we don't need all 3 scales for targets, they are same (up to permutation)
     assert tl_length == len(gs), f"This target doesn't have enough values for all {len(gs)} scales"
     boxes, labels, scale_idx = [], [], []  # combine all information into 3 lists, bbox~(4-bbox, 1-label_id, 1-scale_id)
     for s in range(tl_length):
