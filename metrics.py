@@ -58,9 +58,9 @@ def ll_stats(pred_s, tar_s, scale, tp_iou_threshold):
         pred_state = torch.cat(tuple(map(lambda t: t[..., 0].view(-1, 1), [pred_s, TPm, FPm, FNm])), dim=-1)
         pred_state_nz = pred_state[pred_state.nonzero(as_tuple=True)]    # skip ALL zeros (NB not just zero score)
         p_sorting_indices = pred_state_nz[:, 0].argsort(dim=0, descending=True)    # sort by score
-        cum_cm = torch.cumsum(pred_state_nz[p_sorting_indices][:, 1:], dim=0)  # capture dependence from score
-        cum_precision = cum_cm[..., 1]/(cum_cm[..., 1] + cum_cm[..., 2])
-        cum_recall = cum_cm[..., 1]/(cum_cm[..., 1] + cum_cm[..., 3])
+        acc_cm = torch.cumsum(pred_state_nz[p_sorting_indices][:, 1:], dim=0)  # capture dependence from score
+        acc_precision = acc_cm[..., 1]/(acc_cm[..., 1] + acc_cm[..., 2])
+        acc_recall = acc_cm[..., 1]/(acc_cm[..., 1] + acc_cm[..., 3])
 
         # get counts
         TPc = pred_s[TPm].view(-1, 6).shape[0]
@@ -68,16 +68,21 @@ def ll_stats(pred_s, tar_s, scale, tp_iou_threshold):
         FNc = pred_s[FNm].view(-1, 6).shape[0]
 
         counts.append((TPc, FPc, FNc))
-        prc.append((cum_precision, cum_recall))
+        prc.append((acc_precision, acc_recall))
     return counts, prc
 
-def prc_plot(preds, tars, scales, iou_threshold):
-    counts_sk = torch.tensor([ll_stats(preds[s], tars[s], scale=s, tp_iou_threshold=iou_threshold)[0] for s in scales])
+import seaborn as sns
 
-    # get ready for average precision for each class AP_k, state PR-curve
-    # mAP@0.5:0.05:0.95
-
-
+def prc_plot(preds, tars, scales):
+    """state PR-curve, average precision for each class AP_k"""
+    thresholds = torch.arange(0.5, 0.95, 0.05)     # AP@0.5:0.05:0.95
+    prc_sk = torch.tensor([ll_stats(preds[s], tars[s], scale=s, tp_iou_threshold=0.5)[1] for s in scales])  # 3, 5, 2, N
+    cts_sk = torch.tensor([ll_stats(preds[s], tars[s], scale=s, tp_iou_threshold=0.5)[0] for s in scales])
+    s_dist = cts_sk[..., 0] / cts_sk[..., 0].sum(dim=0, keepdim=True)     # 3, 5 - tensor of scale distribution
+    prc_k = (prc_sk * s_dist).sum(dim=0)   # 5, 2, N - tensor
+    for k in range(prc_k.shape[0]):
+        acc_pr, acc_rc = prc_k[k, 0, :], prc_k[k, 1, :]
+        sns.lineplot(x=acc_rc, y=acc_pr)
 
 def default_metrics(preds, tars, scales, iou_threshold, averaging='micro'):
     # we have [0..3] detections per object, i.e. it could be detected on some scale better, that means we should
