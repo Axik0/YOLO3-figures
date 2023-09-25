@@ -104,9 +104,9 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, de
         if (e + 1) % eup == 0 and dataloader_test is not None:
             dataloader_test_ = tqdm(dataloader_test, desc='Testing: ', colour=palette[0], position=2, leave=False)
             avg_test_loss = run(model, dataloader_test_, loss_fn, scaler=scaler, device=device)
-            epochs_.set_description(f'Test loss {avg_test_loss:.2e}', refresh=True)
+            epochs_.set_postfix_str(f'Test loss {avg_test_loss:.2e}', refresh=True)
         else:
-            epochs_.set_description(f'Train loss {avg_train_loss:.2e}', refresh=True)
+            epochs_.set_postfix_str(f'Train loss {avg_train_loss:.2e}', refresh=True)
 
 
 if __name__ == '__main__':
