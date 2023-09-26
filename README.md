@@ -13,4 +13,4 @@ image description includes shape_class(string), bounding box (bb_center_x, bb_ce
 ### Image transformations: I use Albumentations as my transformation/augmentation framework
 1. Since YOLO image size is 416, I have to resize and convert my 256*256*3 uint8 hwc PIL images to torch dloat chw tensors by default, this transform DEFAULT_TR is built-in
 2. To help gradient flow, I use Normalization with actual statistics from all 10K images (per-channel mean=[0.641, 0.612, 0.596], std=[0.115, 0.11, 0.11] also built-in constants)
-3. Since my dataset is already quite random, i don't think i need any augmentations, but still apply ColorJitter and RandomHorizontalFlip to train dataset. There's no technical problem to use any other augmentations since Albumentations transform images and their altogether
+3. Since my dataset is already quite random, i don't think i need any augmentations, but still apply ColorJitter and RandomHorizontalFlip to train dataset. There's no technical problem to use any other augmentations since Albumentations transform images and bboxes altogether
