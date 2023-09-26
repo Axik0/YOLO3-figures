@@ -21,5 +21,7 @@ I use Albumentations as my transformation/augmentation framework
 2. To help gradient flow, I use Normalization with actual statistics collected from all 10K images
    (per-channel mean=[0.641, 0.612, 0.596], std=[0.115, 0.11, 0.11] also built-in constants)
 4. Since my dataset is already quite random, i don't think i need any augmentations, but still apply ColorJitter and RandomHorizontalFlip to train dataset. There's no technical problem to use any other augmentations since A. transforms images and bboxes altogether
+### Target processing:
+Yolo has 3 outputs and requires specific targets, I prepare 3 tensors each shaped 3*S*S*6, where last dimension is (object presence, bbox(4 local coordinates), class_id)
 
 Unfortunately I can't apply them at once as it requires more than 8Gb of RAM, thus all transformations are applied on the fly (in __getitem__)
