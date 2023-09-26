@@ -1,7 +1,6 @@
 """Precision, Recall, PR-RC curve, AP, mAP for detecc"""
 
 import torch
-import seaborn as sns
 from sklearn.metrics import auc
 
 from aux_utils import raw_transform
@@ -79,7 +78,7 @@ def default_metrics(preds, tars, scales, iou_threshold, averaging='micro'):
     # find valid detections of same objects on different grids (different anchor, different grid size) and take best
     # the only way to do that is to extract identical target bbox from 3 tensors~(batch_size, # anchors, s, s, 6)
 
-    # Instead I will treat these as (imaginary) 3 separate models each specializes at small/medium/large objects
+    # Instead I will treat these as (imaginary) 3 separate models, each specializes at small/medium/large objects
     # my assumptions:
     # if small objects prevail, (ideal) S-model predicts all those but M and L do not have to predict any,
     # if equally distributed, all 3 models must predict something, each of 3 scores matters
@@ -88,29 +87,33 @@ def default_metrics(preds, tars, scales, iou_threshold, averaging='micro'):
 
     # Let's wrap it with a tensor => shaped 3, 5, 3
     counts_sk = torch.tensor([ll_stats(preds[s], tars[s], scale=s, tp_iou_threshold=iou_threshold)[0] for s in scales])
+    # get weights
+    s_dist = counts_sk[..., 0] / counts_sk[..., 0].sum(dim=0, keepdim=True)  # => shaped 3, 5
 
     if averaging == 'micro':
         micro_c = counts_sk.sum(dim=1) #3, 3
         s_dist_micro = micro_c[:, 0]/micro_c[:, 0].sum() # broadcast to 3, 0
+
         avg_pr_micro = (micro_c[:, 0] / (micro_c[:, 0] + micro_c[:, 1]) * s_dist_micro).sum()
         avg_rc_micro = (micro_c[:, 0] / (micro_c[:, 0] + micro_c[:, 2]) * s_dist_micro).sum()
         avg_f1_micro = (2 * avg_pr_micro * avg_rc_micro) / (avg_pr_micro + avg_rc_micro) \
             if avg_pr_micro * avg_rc_micro != 0 else 0
+        print(f"{averaging} | Precision: {avg_pr_micro} | Recall: {avg_rc_micro} | F1-Score {avg_f1_micro}")
         return avg_pr_micro, avg_rc_micro, avg_f1_micro
     elif averaging == 'macro':
-        s_dist_macro = counts_sk[..., 0] / counts_sk[..., 0].sum(dim=0, keepdim=True)  # => shaped 3, 5
-        avg_pr_macro = (counts_sk[..., 0] / (counts_sk[..., 0] + counts_sk[..., 1]) * s_dist_macro).sum(dim=0).mean()
-        avg_rc_macro = (counts_sk[..., 0] / (counts_sk[..., 0] + counts_sk[..., 2]) * s_dist_macro).sum(dim=0).mean()
+        avg_pr_macro = (counts_sk[..., 0] / (counts_sk[..., 0] + counts_sk[..., 1]) * s_dist).sum(dim=0).mean()
+        avg_rc_macro = (counts_sk[..., 0] / (counts_sk[..., 0] + counts_sk[..., 2]) * s_dist).sum(dim=0).mean()
         avg_f1_macro = (2 * avg_pr_macro * avg_rc_macro) / (avg_pr_macro + avg_rc_macro) \
             if avg_pr_macro * avg_rc_macro != 0 else 0
         return avg_pr_macro, avg_rc_macro, avg_f1_macro
+        print(f"{averaging} | Precision: {avg_pr_macro} | Recall: {avg_rc_macro} | F1-Score {avg_f1_macro}")
     else:
         print(f'check averaging method {averaging}')
         return counts_sk
 
 
 def map_score(preds, tars, scales, thr=(0.5, 0.95, 0.05)):
-    """states PR-curve, takes its area, averages over classes, thresholds"""
+    """states PR-curve, takes its area, averages over classes & thresholds"""
     thresholds = torch.arange(*thr)     # AP@0.5:0.05:0.95
     AP_t = []
     for t in thresholds:
