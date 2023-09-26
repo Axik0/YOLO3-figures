@@ -1,14 +1,13 @@
 """actual usage has been moved to jupyter notebook"""
 import torch
 import torch.nn as nn
-# template class for a dataset (makes our dataset compatible with torchvision)
-from torchvision.datasets import VisionDataset
+from torch.utils.data import Dataset
 
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
 from generation import load_dataset, PATH, EPS
-from aux_utils import iou, iou_pairwise, raw_transform, show_img, sample, pick, get_anchors
+from aux_utils import iou_pairwise, raw_transform, show_img, sample, pick, get_anchors
 
 YOLO_SIZE = 416
 # 3 feature maps at 3 different scales based on YOLOv3 paper
@@ -37,13 +36,13 @@ DEFAULT_TR = [A.Resize(YOLO_SIZE, YOLO_SIZE), ToTensorV2()]
 # no augmentations, just resized 256 --> 416, cast to torch.float tensors...(NB! order matters)
 
 
-class FiguresDataset(VisionDataset):
+class FiguresDataset(Dataset):
     """Main task is to transform images and create yolo targets based on data loaded from PATH,
     must-have transforms are built-in already thus aug_list is supposed to contain some augmentations only
     part=(start_id, end_id) translates to slicing on loaded data
     upd_stats allows to get actual mean and standard deviation values per img channel, very slow"""
-    def __init__(self, aug=(), part=(None, None), iou_threshold=0.5, root=PATH, anchors=ANCHORS, gs=GRID_SIZES, upd_stats=False):
-        super().__init__(root)
+    def __init__(self, aug=(), part=(None, None), iou_threshold=0.5, anchors=ANCHORS, gs=GRID_SIZES, upd_stats=False):
+        super().__init__()
         self.iou_thr = iou_threshold
         # anchors are set by just (relative) width & height, nested tuple 3*3
         self.anchors = anchors
@@ -52,6 +51,7 @@ class FiguresDataset(VisionDataset):
         # each of 3 scales has grid_size and set of 3 anchors
         self.grid_sizes = gs
         assert self.nan_per_scale == len(self.grid_sizes), "#anchors doesn't coincide with #grid sizes"
+        print(part)
         self.images, self.bboxes, self.c_idx, mean_c, std_c = load_dataset(transforms=None, part_slice=part, stats=upd_stats)
         assert len(self.images) == len(self.bboxes), 'wrong dataset generation, please retry'
         # calculate per-channel mean and std (over whole dataset, slow) while loading or just use pre-calculated
@@ -96,7 +96,8 @@ class FiguresDataset(VisionDataset):
                 al_w_centers = [(cx / gs + a[0] / 2, cy / gs + a[1] / 2, *a) for a in
                                 al]  # anchor is centered within a cell, this line adds center's absolute coordinates
                 # anchor choice - 'best' (by IoU) of all free anchors at each step, suppress the rest w/ same role (NMS)
-                anchor_ious = iou(base_box=bb, list_of_boxes=al_w_centers)
+                anchor_ious = (iou_pairwise(torch.tensor(bb).unsqueeze(0), torch.tensor(al_w_centers))
+                               .squeeze(0, -1).tolist())
                 # sort in descending manner and get sorting indices
                 an_top = sorted(range(len(anchor_ious)), reverse=True, key=lambda _: anchor_ious[_])
                 for ai in an_top:  # an_top = [2, 1, 0]
@@ -168,10 +169,10 @@ class YOLOLoss(nn.Module):
 
 
 if __name__ == '__main__':
-    ds = FiguresDataset(part=(200, 300), upd_stats=False)
+    ds = FiguresDataset(part=slice(*(200, 300)), upd_stats=False)
     # it's weird to move yolo constants to aux_utils, can't be imported from here as it leads to circular import error
     gsa = {'gs': GRID_SIZES, 'anchors': ANCHORS}
-    # show_img(pick(ds[0], **gsa))
+    show_img(pick(ds[0], **gsa))
     sample(ds, **gsa)
     # print(ds[0][2])
 

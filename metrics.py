@@ -46,7 +46,7 @@ def ll_stats(pred_s, tar_s, scale, tp_iou_threshold):
         full_class_size = ap_mask.count_nonzero().item()
 
         # my TP and FN sum up to full class k size, the others treat pp_mask * ~enough_iou as FP for some ??reason??
-        # my assumption: low obj score => class doesn't matter, model says no object (but should be)
+        # my assumption: low obj score => class doesn't matter, model says no object (but should be) ==> FN
         # their assumption: low obj score but ok class => model detected class, but we say "False" instead of model
         TPm, FNm = got * ap_mask * pp_mask * enough_iou, ap_mask * (got * (~pp_mask + pp_mask * ~enough_iou) + ignored)
         FPm, TNm = got * pp_mask * ~ap_mask, got * ~ap_mask * ~pp_mask + ignored * ~ap_mask
@@ -105,8 +105,8 @@ def default_metrics(preds, tars, scales, iou_threshold, averaging='micro'):
         avg_rc_macro = (counts_sk[..., 0] / (counts_sk[..., 0] + counts_sk[..., 2]) * s_dist).sum(dim=0).mean()
         avg_f1_macro = (2 * avg_pr_macro * avg_rc_macro) / (avg_pr_macro + avg_rc_macro) \
             if avg_pr_macro * avg_rc_macro != 0 else 0
-        return avg_pr_macro, avg_rc_macro, avg_f1_macro
         print(f"{averaging} | Precision: {avg_pr_macro} | Recall: {avg_rc_macro} | F1-Score {avg_f1_macro}")
+        return avg_pr_macro, avg_rc_macro, avg_f1_macro
     else:
         print(f'check averaging method {averaging}')
         return counts_sk
