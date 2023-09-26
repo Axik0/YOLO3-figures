@@ -1,6 +1,8 @@
 """Precision, Recall, PR-RC curve, AP, mAP for detecc"""
 
 import torch
+import seaborn as sns
+from sklearn.metrics import auc
 
 from aux_utils import raw_transform
 from modules import ANCHORS
@@ -71,18 +73,6 @@ def ll_stats(pred_s, tar_s, scale, tp_iou_threshold):
         prc.append((acc_precision, acc_recall))
     return counts, prc
 
-import seaborn as sns
-
-def prc_plot(preds, tars, scales):
-    """state PR-curve, average precision for each class AP_k"""
-    thresholds = torch.arange(0.5, 0.95, 0.05)     # AP@0.5:0.05:0.95
-    prc_sk = torch.tensor([ll_stats(preds[s], tars[s], scale=s, tp_iou_threshold=0.5)[1] for s in scales])  # 3, 5, 2, N
-    cts_sk = torch.tensor([ll_stats(preds[s], tars[s], scale=s, tp_iou_threshold=0.5)[0] for s in scales])
-    s_dist = cts_sk[..., 0] / cts_sk[..., 0].sum(dim=0, keepdim=True)     # 3, 5 - tensor of scale distribution
-    prc_k = (prc_sk * s_dist).sum(dim=0)   # 5, 2, N - tensor
-    for k in range(prc_k.shape[0]):
-        acc_pr, acc_rc = prc_k[k, 0, :], prc_k[k, 1, :]
-        sns.lineplot(x=acc_rc, y=acc_pr)
 
 def default_metrics(preds, tars, scales, iou_threshold, averaging='micro'):
     # we have [0..3] detections per object, i.e. it could be detected on some scale better, that means we should
@@ -117,3 +107,20 @@ def default_metrics(preds, tars, scales, iou_threshold, averaging='micro'):
     else:
         print(f'check averaging method {averaging}')
         return counts_sk
+
+
+def map_score(preds, tars, scales, thr=(0.5, 0.95, 0.05)):
+    """states PR-curve, takes its area, averages over classes, thresholds"""
+    thresholds = torch.arange(*thr)     # AP@0.5:0.05:0.95
+    AP_t = []
+    for t in thresholds:
+        prc_sk = torch.tensor([ll_stats(preds[s], tars[s], scale=s, tp_iou_threshold=t)[1] for s in scales])  # 3, 5, 2, N
+        cts_sk = torch.tensor([ll_stats(preds[s], tars[s], scale=s, tp_iou_threshold=t)[0] for s in scales])
+        s_dist = cts_sk[..., 0] / cts_sk[..., 0].sum(dim=0, keepdim=True)     # 3, 5 - tensor of scale distribution
+        prc_k = (prc_sk * s_dist).sum(dim=0)   # 5, 2, N - tensor
+        AP_k = [auc(x=prc_k[k, 0, :], y=prc_k[k, 1, :]) for k in range(prc_k.shape[0])]
+        AP_t.append(AP_k)
+    mAP = torch.tensor(AP_t).mean()     # mean over all thresholds and classes
+    print(f"mAP@{thr[0]}:{thr[2]}:{thr[1]} score is {mAP}")
+    return mAP
+
