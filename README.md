@@ -1,4 +1,5 @@
 # YOLO3-figures
+
 ## Data generation
 My algorithm in generation.py creates RGB 256,256,3 HWC images with various 2D-shapes
 
@@ -27,3 +28,5 @@ Unfortunately I can't apply them at once as it requires more than 8Gb of RAM, th
 
 ### Target processing:
 Yolo has 3 outputs and requires specific targets, I prepare 3 tensors each shaped 3*S*S*6, where last dimension is (object presence, bbox(4 local coordinates), class_id)
+
+# TO BE CONTINUED
