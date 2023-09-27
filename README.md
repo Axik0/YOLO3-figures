@@ -41,15 +41,17 @@ It varies from 0:1 to 3:1 as our objects are supposed to be detected on all scal
 Each cell has 3 pre-defined bboxes aka anchors at each of 3 scales. 
 They are priors, represent typical scales and sizes within a dataset. As my dataset is vastly different from COCO, I can't use standard ones and have to get custom. I apply clustering algorithm ~Kmeans with IoU to all bboxes to retrieve 9 cluster centers, sorted by size (w+h)
 
-In theory, Yolov3 allows up to 3 objects 'taking up' a same cell but for now, max amount of objects is 5 and they (even their bboxes) aren't intersecting with each other by construction, therefore our target tensors are quite sparse and never 'exhausted'.
+In theory, Yolov3 allows up to 3 objects 'taking up' a same cell but for now, max amount of objects is 5 and they (even their bboxes) aren't intersecting with each other by construction, therefore our target tensors are quite sparse and never 'exhausted'
 
 ## Prediction
 To achieve better gradient flow, Yolo model doesn't output coordinates of bbox, instead it controls transformation of anchor to bbox which is defined within loss function
 
-We use special combo-loss function  of 4 components, weighed differently
+We use special combo-loss function of 4 components, weighed differently. 
 
-Object score is not just 0/1, it should be some probability that reflects model's confidence. 
-We add IoU of prediction bbox with target so that model could learn 
+Object score is not just 0/1, should be probability that reflects model's confidence (in bbox) 
+Therefore we compare prediction bbox with target so that model could learn IoU as score
+For yet unknown reason, IoU calculation is detached from the current graph here
 
+BBox loss is in fact 3 orders of magnitude of other 3 parts, that's why I don't scale it 10x more as in original paper (set higher weights for presence and absence losses instead)
 
 # TO BE CONTINUED
