@@ -13,9 +13,12 @@ My algorithm in generation.py creates RGB 256,256,3 HWC images with various 2D-s
 I've generated 10K of such Images
 ![Screenshot 2023-09-12 170355](https://github.com/Axik0/YOLO3-figures/assets/100946131/d312f430-d323-4dde-ab0a-865ae0942e66)
 
-I store local paths to images as keys within json data object for convenience, 
+Image description includes (for all figures):
+- shape_class(string), 
+- bounding box params (bb_center_x, bb_center_y), (bb_half_width, bb_half_height)
 
-image description includes shape_class(string), bounding box (bb_center_x, bb_center_y), (bb_half_width, bb_half_height) for all figures
+I store local paths to images as keys within json data object for loading convenience
+
 ## Dataset preparation
 ### Image transformations: 
 I use Albumentations as my transformation/augmentation framework
@@ -33,20 +36,20 @@ Yolo makes predictions at 3 scales at once thus has 3 outputs and requires speci
 - bbox(4 local coordinates within a cell of grid S)
 - class_id
 
-It's easier to think of that as coarse (up to cell) then fine (within a cell) coordinate system adjustment for all objects on image
+It's easier to think of that as coarse (up to cell) then fine (within a cell) coordinate system for all objects on image
 
 People say pretty much confusing things like "each cell predicts 1 object" but in fact, targets for each image are independent and even then there isn't any 1:1 correspondence. 
 It varies from 0:1 to 3:1 as our objects are supposed to be detected on all scales at once, independently and some object might not be included into target at all if that cell is 'full'.
 #### Anchors
 Each cell has 3 pre-defined bboxes aka anchors at each of 3 scales. 
-They are priors, represent typical scales and sizes within a dataset. As my dataset is vastly different from COCO, I can't use standard ones and have to get custom. I apply clustering algorithm ~Kmeans with IoU to all bboxes to retrieve 9 cluster centers, sorted by size (w+h)
+They are priors, represent typical aspect ratios and sizes within a dataset. As my dataset is vastly different from COCO, I can't use default and have to get custom ones. I apply clustering algorithm ~Kmeans with IoU to all bboxes to retrieve 9 cluster centers, sorted by size (w+h)
 
 In theory, Yolov3 allows up to 3 objects 'taking up' a same cell but for now, max amount of objects is 5 and they (even their bboxes) aren't intersecting with each other by construction, therefore our target tensors are quite sparse and never 'exhausted'
 
 ## Prediction
-To achieve better gradient flow, Yolo model doesn't output coordinates of bbox, instead it controls transformation of anchor to bbox which is defined within loss function
+To achieve better gradient flow, Yolo model doesn't output coordinates of bbox, instead it controls (parameters of) transformation (defined within loss function) of anchor to bbox
 
-We use special combo-loss function of 4 components, weighed differently. 
+We use special combo-loss function of 4 components, weighed differently
 
 Object score is not just 0/1, should be probability that reflects model's confidence (in bbox) 
 Therefore we compare prediction bbox with target so that model could learn IoU as score
