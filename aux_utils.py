@@ -27,7 +27,7 @@ def vertex_repr(bbox):
 
 
 def iou_pairwise(tensor_1, tensor_2):
-    """vectorized pairwise iou computation, capable of processing inputs with 1-st dim mismatch:
+    """vectorized pairwise iou computation, capable of processing inputs with 1-st dim (batch) mismatch:
     # tensor_1 = K, Y, 4 --> new axis --> K, 1, Y, 4 --> broadcast 1 to L cols --> K, L, Y, 4
     # tensor_2 = L, Y, 4 --> new axis --> 1, L, Y, 4 --> broadcast 1 to K rows --> K, L, Y, 4
     returns [K, L, Y, 1]-tensor aka matrix, keeping intermediate shape Y intact or
@@ -35,7 +35,7 @@ def iou_pairwise(tensor_1, tensor_2):
     NB input tensors must have same Y and last dimension = 4 (describes a box) or 2 (just width and height)
     When there isn't any center coordinates, consider all bboxes as propagating from tlc (0,0)=vmin
     This function has been tested to provide identical results to its predecessor on random tensors w/ same shape"""
-    assert tensor_1.shape[1:] == tensor_2.shape[1:], \
+    assert tensor_1.ndim == tensor_2.ndim and tensor_1.shape[1:] == tensor_2.shape[1:], \
         f"shape mismatch, input {tensor_1.shape} differs from {tensor_2.shape} in more than 2 dimensions, stop"
     assert tensor_1.shape[-1] == 4 or tensor_1.shape[-1] == 2, "last dimension is not 4 or 2, unable to process"
 

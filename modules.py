@@ -147,18 +147,18 @@ class YOLOLoss(nn.Module):
 
         # current anchor_s ~ 3*2 tensor, add dimensions to multiply freely
         anchors_s = torch.tensor(ANCHORS[scale]).reshape(1, 3, 1, 1, 2)
+        # transform predictions to targets using given anchors
+        pred_st = raw_transform(pred_s, anchors_s)
 
         # has object loss: let object presence probability = iou_score, learns to predict not just 1 but own iou with gt
-        # transform predictions to targets using given anchors
-        pred_s = raw_transform(pred_s, anchors_s)
         # take the ones with object and compare with target bbox by iou
-        ious = iou_pairwise(pred_s[..., 1:5][yobj], tar_s[..., 1:5][yobj]).detach()  # yet unsure about this detachment
-        yo_loss = self.bce(pred_s[..., 0:1][yobj], ious * tar_s[..., 0:1][yobj])
+        ious = iou_pairwise(pred_st[..., 1:5][yobj], tar_s[..., 1:5][yobj]).detach()  # yet unsure about this detachment
+        yo_loss = self.bce(pred_st[..., 0:1][yobj], ious * tar_s[..., 0:1][yobj])
 
         # bounding box loss: let's transform (part of) target to predictions, this trick allows better gradient flow,
-        pred_s[..., 1:3] = raw_transform(pred_s, anchors_s, True)[..., 1:3]  # this part is same sigmoid as before
-        tar_s[..., 3:5] = torch.log(EPS ** 2 + tar_s[..., 3:5]) / anchors_s  # transform target with inversion of before
-        bo_loss = self.mse(pred_s[..., 1:5][yobj], tar_s[..., 1:5][yobj])
+        pred_st_part = torch.cat([pred_st[..., 1:3], pred_s[..., 3:5]], dim=-1)  # part is same sigmoid as before
+        tar_s[..., 3:5] = torch.log(EPS ** 3 + tar_s[..., 3:5]) / anchors_s  # inverse transform part of target
+        bo_loss = self.mse(pred_st_part[..., 0:4][yobj], tar_s[..., 1:5][yobj])
 
         # no object loss: 0:1 is a trick to keep dimensions and don't throw an error by mask
         no_loss = self.bce(pred_s[..., 0:1][nobj], tar_s[..., 0:1][nobj])
