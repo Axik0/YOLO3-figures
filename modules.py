@@ -142,8 +142,7 @@ class YOLOLoss(nn.Module):
         self.la_box = l_box  # 10 originally
         self.la_cls = l_cls
 
-        # I need those for loss hyperparameter investigation, just in case lets init with zeros
-        self.no_loss = self.yo_loss = self.bo_loss = self.ca_loss = torch.tensor(0)
+        self.combo_loss = 0
 
     def forward(self, pred_s, tar_s, scale):
         """called separately at each of 3 scales, torch-compliant"""
@@ -170,14 +169,17 @@ class YOLOLoss(nn.Module):
         self.no_loss = self.bce(pred_s[..., 0:1][nobj], tar_s[..., 0:1][nobj])
         # class loss: takes C logits, outputs single number, compared w/ target class
         self.ca_loss = self.ent(pred_s[..., 5:][yobj], tar_s[..., 5][yobj].long())
-        return (self.la_abs * self.no_loss +
-                self.la_prs * self.yo_loss +
-                self.la_box * self.bo_loss +
-                self.la_cls * self.ca_loss)
+
+        # stack 4 separate current loss values into 4-tensor
+        self.combo_loss = torch.stack((self.la_abs * self.no_loss,
+                     self.la_prs * self.yo_loss,
+                     self.la_box * self.bo_loss,
+                     self.la_cls * self.ca_loss))
+
+        return torch.sum(self.combo_loss)
 
     def get_state(self):
-        """returns current 4 separate loss values as a tuple"""
-        return self.no_loss.item(), self.yo_loss.item(), self.bo_loss.item(), self.ca_loss.item()
+        return self.combo_loss.detach()
 
 
 if __name__ == '__main__':

@@ -58,7 +58,7 @@ def load_ch(model, optimizer, path=os.path.join(CFP, CH_NAME)):
 def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=True):
     """single universal (forward + optional backward) pass,
     loss mean aggregation (over dataset) is set up as a default output"""
-    losses = []
+    states = []
     model.train() if optimizer else model.eval()
     with nullcontext() if optimizer else torch.inference_mode():
         for img, tar in dataloader:
@@ -66,9 +66,9 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
             # forward pass within mixed precision context (casts to lower precision dtype if possible)
             with torch.autocast(device) if scaler else nullcontext():
                 p = model(x)
-                loss_sc = [loss_fn(pred_s=p[s], tar_s=y[s], scale=s) for s in range(3)]
-                loss = torch.sum(torch.stack(loss_sc, dim=0), dim=0)
-            losses.append(loss.detach())  # average current batch's loss tensor
+                loss_data = [(loss_fn(pred_s=p[s], tar_s=y[s], scale=s), loss_fn.get_state()) for s in range(3)]
+                loss, state = tuple(map(lambda tl: torch.sum(torch.stack(tl, dim=0), dim=0), zip(*loss_data)))
+            states.append(state)  # tensor of 4 elements (already averaged over current batch)
             # backward pass
             if optimizer:
                 optimizer.zero_grad()
@@ -82,9 +82,10 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
                 else:
                     loss.backward()
                     optimizer.step()
-            avg_loss = torch.mean(torch.stack(losses)).item()
-            dataloader.set_postfix_str(f'Current loss {losses[-1].item():.2e}', refresh=True)
-        return avg_loss if agg else losses
+            # cumulative averaging approach
+            ba_loss_dist = torch.mean(torch.stack(states, dim=0), dim=0)  # loss distribution (mean over batch dim)
+            dataloader.set_postfix_str(f'Current loss {torch.sum(ba_loss_dist).item():.2e}', refresh=True)
+        return ba_loss_dist if agg else states
 
 
 def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, device=DEVICE, dataloader_test=None, eup=2, load=False):
@@ -97,20 +98,22 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, de
     epochs_ = tnrange(*(loaded_epoch, n_epochs), desc='Epoch: ', colour=palette[2], position=0, leave=True)
     for e in epochs_:
         dataloader_train_ = tqdm(dataloader_train, desc='  Batch: ', colour=palette[1], position=1, leave=False)
-        avg_train_loss = run(model, dataloader_train_, loss_fn, scaler=scaler, optimizer=optimizer, device=device)
+        avg_train_loss_dist = run(model, dataloader_train_, loss_fn, scaler=scaler, optimizer=optimizer, device=device)
+        avg_train_loss = torch.sum(avg_train_loss_dist).item()
         # save checkpoint after each epoch
         saved = save_ch(model, optimizer, curr_loss=avg_train_loss, curr_epoch=e+1)
         if (e + 1) % eup == 0 and dataloader_test is not None:
             dataloader_test_ = tqdm(dataloader_test, desc='Testing: ', colour=palette[0], position=2, leave=False)
-            avg_test_loss = run(model, dataloader_test_, loss_fn, scaler=scaler, device=device)
-            ceu_str = f'test loss {avg_test_loss:.2e}'
+            avg_test_loss_dist = run(model, dataloader_test_, loss_fn, scaler=scaler, device=device)
+            avg_test_loss = torch.sum(avg_test_loss_dist).item()
+            ceu_str = (f'test loss {avg_test_loss:.2f},',
+                       f' distributed as {torch.round(avg_test_loss_dist, decimals=2).tolist()}')
         else:
-            ceu_str = f'train loss {avg_train_loss:.2e}'
-        epochs_.set_postfix_str(ceu_str, refresh=True)
+            ceu_str = (f'train loss {avg_train_loss:.2f},',
+                       f' distributed as {torch.round(avg_train_loss_dist, decimals=2).tolist()}')
+        epochs_.set_postfix_str(ceu_str[0], refresh=True)
         if saved:
-            # NOT averaged, just last loss module state on train/test data which is enough for my purpose
-            raw_loss_dist = tuple(map(lambda x: round(x, 2), loss_fn.get_state()))
-            epochs_.write(f'checkpoint after {e + 1} epoch saved, ' + ceu_str + f' distributed as {raw_loss_dist}')
+            epochs_.write(f'checkpoint after {e + 1} epoch saved, ' + ceu_str[0] + ceu_str[1])
 
 
 if __name__ == '__main__':
