@@ -90,7 +90,8 @@ def run(model, dataloader, loss_fn, scaler, optimizer=None, device=DEVICE, agg=T
 def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, device=DEVICE, dataloader_test=None, eup=2, load=False):
     """model training w/ possible evaluation if test dataset is provided
         eup = epoch progress bar's description update period, anything >= 0"""
-    loaded_epoch = load_ch(model, optimizer) if load else 0     # inplace loader
+    loaded_epoch = load_ch(model, optimizer) if load else 0     # inplace last state loader
+    assert loaded_epoch < n_epochs, f'Set number of epochs larger than loaded, {loaded_epoch}'
     model = model.to(device=device)
     loss_fn = loss_fn.to(device=device)    # as it's stateful, has built-in hyperparameters (weighing parts of loss)
     epochs_ = tnrange(*(loaded_epoch, n_epochs), desc='Epoch: ', colour=palette[2], position=0, leave=True)
@@ -99,14 +100,17 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, de
         avg_train_loss = run(model, dataloader_train_, loss_fn, scaler=scaler, optimizer=optimizer, device=device)
         # save checkpoint after each epoch
         saved = save_ch(model, optimizer, curr_loss=avg_train_loss, curr_epoch=e+1)
-        if saved:
-            epochs_.write(f'checkpoint after {e + 1} epoch saved')
         if (e + 1) % eup == 0 and dataloader_test is not None:
             dataloader_test_ = tqdm(dataloader_test, desc='Testing: ', colour=palette[0], position=2, leave=False)
             avg_test_loss = run(model, dataloader_test_, loss_fn, scaler=scaler, device=device)
-            epochs_.set_postfix_str(f'Test loss {avg_test_loss:.2e}', refresh=True)
+            ceu_str = f'test loss {avg_test_loss:.2e}'
         else:
-            epochs_.set_postfix_str(f'Train loss {avg_train_loss:.2e}', refresh=True)
+            ceu_str = f'train loss {avg_train_loss:.2e}'
+        epochs_.set_postfix_str(ceu_str, refresh=True)
+        if saved:
+            # NOT averaged, just last loss module state on train/test data which is enough for my purpose
+            raw_loss_dist = tuple(map(lambda x: round(x, 2), loss_fn.get_state()))
+            epochs_.write(f'checkpoint after {e + 1} epoch saved, ' + ceu_str + f' distributed as {raw_loss_dist}')
 
 
 if __name__ == '__main__':

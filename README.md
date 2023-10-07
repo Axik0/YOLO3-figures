@@ -22,10 +22,11 @@ I store local paths to images as keys within json data object for loading conven
 ## Dataset preparation
 ### Image transformations: 
 I use Albumentations as my transformation/augmentation framework
-1. Since YOLO image size is 416, I have to resize and convert my 256,256,3 uint8 hwc PIL images to torch dloat chw tensors by default, this transform DEFAULT_TR is built-in
-2. To help gradient flow, I use Normalization with actual statistics collected from all 10K images
-   (per-channel mean=[0.641, 0.612, 0.596], std=[0.115, 0.11, 0.11] are also built-in constants)
-4. Since my data is already quite diverse, I don't think I need any augmentations, but still apply ColorJitter and RandomHorizontalFlip to train dataset. There's no technical problem to use any other augmentations since A. transforms images and bboxes altogether
+1. Since YOLO image size is 416, I have to resize and convert my 256,256,3 uint8 hwc PIL images to torch float chw tensors by default, this transform DEFAULT_TR is built-in
+2. To help gradient flow, I use Normalization with actual statistics collected from all 10K images, i.e. per-channel mean and std below are built-in constants:
+   - mean = [0.641, 0.612, 0.596]
+   - std = [0.115, 0.11, 0.11]
+3. Since my synthetic data is already quite diverse, I don't think I might need any augmentations, but still apply ColorJitter and RandomHorizontalFlip to train dataset. There's no technical problem to use any other augmentations since A. transforms images and bboxes altogether
 
 Unfortunately I can't apply them at once as it requires more than 8Gb of RAM, thus all transformations are applied on the fly (in __getitem__)
 
@@ -55,8 +56,31 @@ We use special combo-loss function of 4 components, weighed differently
 
 Object score is not just 0/1, should be probability that reflects model's confidence (in bbox) 
 Therefore we compare prediction bbox with target so that model could learn IoU as score
+
 For yet unknown reason, IoU calculation is detached from the current graph here
 
-BBox loss is in fact 3 orders of magnitude of other 3 parts, that's why I don't scale it 10x more as in original paper (set higher weights for presence and absence losses instead)
+BBox loss is in fact 3 orders of magnitude of other 3 parts at the beginning, that's why I don't scale it 10x more as in original paper (set higher weights for presence and absence losses instead)
+Since these hyperparameters impact absolute value of the loss, we should use anything but loss as model's performance metric for their tuning
 
+## Training (training.py)
+Current training algorithm saves model+optimizer state as a checkpoint at each epoch, moreover it evaluates model each odd epoch on test data to control overfitting
+
+I use default Adam optimizer with lr=1e-3 and zero weight decay
+
+I've also implemented automated mixed precision (AMP) support that should speed up training via autocasting dtypes to lower precision wherever possible, but it requires gradient scaler for good (to prevent gradient underflow under hood) which only supports CUDA GPUs for now so that AMP is turned off completely unless you have one
+
+I decided to limit my data to 2000 samples with 20% test size. It takes ~25min to complete an epoch on my i5-8250U CPU and yet to be tested on GPU
+## Overall visualization (process.ipynb)
+I've achieved ~5x train and test loss drop after 250 epochs, overfitting after ~267-th epoch.
+
+I am going to lower learning rate to 1e-4, take a larger subset of data to train on
+
+Loss distribution has also changed, maybe I should use different loss weights too
+
+## Current thoughts
+- remove iou detachment
+- inspect outliers, elements/batches with quite high loss
+- re-generate images w/ higher resolution
+- check confusion matrix and/or other metrics like APk, mAP (in metrics.py)
+- use ultralytics yolov8 on my dataset
 # TO BE CONTINUED

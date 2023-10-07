@@ -33,6 +33,8 @@ ANCHORS = (
 )
 
 DEFAULT_TR = [A.Resize(YOLO_SIZE, YOLO_SIZE), ToTensorV2()]
+
+
 # no augmentations, just resized 256 --> 416, cast to torch.float tensors...(NB! order matters)
 
 
@@ -41,7 +43,8 @@ class FiguresDataset(Dataset):
     must-have transforms are built-in already thus aug_list is supposed to contain some augmentations only
     part=(start_id, end_id) translates to slicing on loaded data
     upd_stats allows to get actual mean and standard deviation values per img channel, very slow"""
-    def __init__(self, aug=(), part=(None, None), iou_threshold=0.5, anchors=ANCHORS, gs=GRID_SIZES, upd_stats=False):
+
+    def __init__(self, aug=(), part=slice(None, None), iou_threshold=0.5, anchors=ANCHORS, gs=GRID_SIZES, upd_stats=False):
         super().__init__()
         self.iou_thr = iou_threshold
         # anchors are set by just (relative) width & height, nested tuple 3*3
@@ -51,8 +54,8 @@ class FiguresDataset(Dataset):
         # each of 3 scales has grid_size and set of 3 anchors
         self.grid_sizes = gs
         assert self.nan_per_scale == len(self.grid_sizes), "#anchors doesn't coincide with #grid sizes"
-        print(part)
-        self.images, self.bboxes, self.c_idx, mean_c, std_c = load_dataset(transforms=None, part_slice=part, stats=upd_stats)
+        self.images, self.bboxes, self.c_idx, mean_c, std_c = load_dataset(transforms=None, part_slice=part,
+                                                                           stats=upd_stats)
         assert len(self.images) == len(self.bboxes), 'wrong dataset generation, please retry'
         # calculate per-channel mean and std (over whole dataset, slow) while loading or just use pre-calculated
         self.mean, self.std = (mean_c, std_c) if upd_stats else [0.641, 0.612, 0.596], [0.115, 0.11, 0.11]
@@ -126,18 +129,21 @@ class FiguresDataset(Dataset):
 
 
 class YOLOLoss(nn.Module):
-    def __init__(self, l_cls=1, l_prs=10, l_abs=10, l_box=1):
-        """weighed regressor & classifier loss"""
+    def __init__(self, l_abs=10, l_prs=10, l_box=1, l_cls=1):
+        """weighed regressor & classifier loss, consists of 4 parts"""
         super().__init__()
         self.mse = nn.MSELoss()  # for regression - box predictions
         self.bce = nn.BCEWithLogitsLoss()  # object presence/absence
         self.ent = nn.CrossEntropyLoss()  # for classes, we could use BCE but each box has just one class, no multilabel
 
         # losses are weighed (4 hyperparameters)
-        self.la_cls = l_cls
+        self.la_abs = l_abs  # 10 originally
         self.la_prs = l_prs
-        self.la_abs = l_abs     # 10 originally
-        self.la_box = l_box     # 10 originally
+        self.la_box = l_box  # 10 originally
+        self.la_cls = l_cls
+
+        # I need those for loss hyperparameter investigation, just in case lets init with zeros
+        self.no_loss = self.yo_loss = self.bo_loss = self.ca_loss = torch.tensor(0)
 
     def forward(self, pred_s, tar_s, scale):
         """called separately at each of 3 scales, torch-compliant"""
@@ -153,19 +159,25 @@ class YOLOLoss(nn.Module):
         # has object loss: let object presence probability = iou_score, learns to predict not just 1 but own iou with gt
         # take the ones with object and compare with target bbox by iou
         ious = iou_pairwise(pred_st[..., 1:5][yobj], tar_s[..., 1:5][yobj]).detach()  # yet unsure about this detachment
-        yo_loss = self.bce(pred_st[..., 0:1][yobj], ious * tar_s[..., 0:1][yobj])
+        self.yo_loss = self.bce(pred_st[..., 0:1][yobj], ious * tar_s[..., 0:1][yobj])
 
         # bounding box loss: let's transform (part of) target to predictions, this trick allows better gradient flow,
         pred_st_part = torch.cat([pred_st[..., 1:3], pred_s[..., 3:5]], dim=-1)  # part is same sigmoid as before
         tar_s[..., 3:5] = torch.log(EPS ** 3 + tar_s[..., 3:5]) / anchors_s  # inverse transform part of target
-        bo_loss = self.mse(pred_st_part[..., 0:4][yobj], tar_s[..., 1:5][yobj])
+        self.bo_loss = self.mse(pred_st_part[..., 0:4][yobj], tar_s[..., 1:5][yobj])
 
         # no object loss: 0:1 is a trick to keep dimensions and don't throw an error by mask
-        no_loss = self.bce(pred_s[..., 0:1][nobj], tar_s[..., 0:1][nobj])
+        self.no_loss = self.bce(pred_s[..., 0:1][nobj], tar_s[..., 0:1][nobj])
         # class loss: takes C logits, outputs single number, compared w/ target class
-        ca_loss = self.ent(pred_s[..., 5:][yobj], tar_s[..., 5][yobj].long())
-        # print(no_loss, yo_loss, bo_loss, ca_loss)
-        return self.la_abs * no_loss + self.la_prs * yo_loss + self.la_box * bo_loss + self.la_cls * ca_loss
+        self.ca_loss = self.ent(pred_s[..., 5:][yobj], tar_s[..., 5][yobj].long())
+        return (self.la_abs * self.no_loss +
+                self.la_prs * self.yo_loss +
+                self.la_box * self.bo_loss +
+                self.la_cls * self.ca_loss)
+
+    def get_state(self):
+        """returns current 4 separate loss values as a tuple"""
+        return self.no_loss.item(), self.yo_loss.item(), self.bo_loss.item(), self.ca_loss.item()
 
 
 if __name__ == '__main__':
