@@ -107,10 +107,10 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs, scaler=None, de
             avg_test_loss_dist = run(model, dataloader_test_, loss_fn, scaler=scaler, device=device)
             avg_test_loss = torch.sum(avg_test_loss_dist).item()
             ceu_str = (f'test loss {avg_test_loss:.2f},',
-                       f' distributed as {torch.round(avg_test_loss_dist, decimals=2).tolist()}')
+                       f' distributed as {tuple(map(lambda x:round(x, 2), avg_test_loss_dist.tolist()))}')
         else:
             ceu_str = (f'train loss {avg_train_loss:.2f},',
-                       f' distributed as {torch.round(avg_train_loss_dist, decimals=2).tolist()}')
+                       f' distributed as {tuple(map(lambda x:round(x, 2), avg_train_loss_dist.tolist()))}')
         epochs_.set_postfix_str(ceu_str[0], refresh=True)
         if saved:
             epochs_.write(f'checkpoint after {e + 1} epoch saved, ' + ceu_str[0] + ceu_str[1])
