@@ -142,7 +142,7 @@ class YOLOLoss(nn.Module):
         self.la_box = l_box  # 10 originally
         self.la_cls = l_cls
 
-        self.combo_loss = 0
+        self.combo_loss = torch.tensor(0.)
 
     def forward(self, pred_s, tar_s, scale):
         """called separately at each of 3 scales, torch-compliant"""
