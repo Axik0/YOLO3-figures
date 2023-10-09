@@ -65,6 +65,7 @@ def run(model, dataloader, loss_fn, amp_scaler, optimizer=None, device=DEVICE, a
             # forward pass within mixed precision context (casts to lower precision dtype if possible)
             with torch.autocast(device) if amp_scaler else nullcontext():
                 p = model(x)
+                # tricky: loss_fn forward call must happen BEFORE get_state() and that's how it is by default in python
                 loss_data = [(loss_fn(pred_s=p[s], tar_s=y[s], scale=s), loss_fn.get_state()) for s in range(3)]
                 loss, state = tuple(map(lambda tl: torch.sum(torch.stack(tl, dim=0), dim=0), zip(*loss_data)))
             states.append(state)  # tensor of 4 elements (already averaged over current batch)
@@ -91,8 +92,7 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs,
           amp_scaler=None, device=DEVICE, dataloader_test=None, ep=2, load=False, palette=PALETTE):
     """Model training procedure w/ possible evaluation (if test data is provided) and autosave/autoload
         ep -- model evaluation period, any integer >= 0,
-        scaler should be an instance of torch.cuda.amp.GradScaler for automated mixed precision training
-        """
+        amp_scaler should be an instance of torch.cuda.amp.GradScaler for automated mixed precision training on GPU"""
     loaded_epoch = load_ch(model, optimizer) if load else 0     # inplace last state loader
     assert loaded_epoch < n_epochs, f'Set number of epochs larger than loaded, {loaded_epoch}'
 

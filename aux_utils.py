@@ -13,10 +13,15 @@ from itertools import chain
 from sklearn.cluster import KMeans
 
 
-def show_img(tensor_chw):
+def show_img(tensor_chw, slim=True):
+    """returns AxesImage object, i.e. an image attached to both axes
+        plt.show() is unnecessary for inline jupyter notebook backend,
+        slim option allows to get rid of axes and plot just the image"""
     tensor_hwc = tensor_chw.permute(1, 2, 0)
-    plt.imshow(tensor_hwc)
-    plt.show()
+    imax_object = plt.imshow(tensor_hwc)
+    if slim:
+        plt.axis('off')
+    return imax_object
 
 
 def vertex_repr(bbox):
@@ -93,23 +98,23 @@ def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
     boxes, labels, scale_idx = [], [], []  # combine all information into 3 lists, bbox~(4-bbox, 1-label_id, 1-scale_id)
     for s in range(tl_length):
         # create presence mask (indices)
-        present_s = tar_like[s][..., 0] == 1
+        present_s = tar_like[s][..., 0] > 0.75
         # convert 4 local (relative to cell shiftx, shifty, width, height) to absolute for all ai, cx, cy
         ix = torch.nonzero(present_s)[:, 1:3].float()  # 2D tensor #nonzero*(N-1) with values=indices, extract (cx, cy)
         # !this one should be cast to float manually because it's integer and going to be assigned to float!
         # copy tensor and replace 4 values of last dimension with absolute bbox coordinates there
-        new_tl = tar_like[s].clone()  # .detach() maybe I should detach it too as it's for vis
         if raw:  # transform raw net outs to target first, unsqueeze-squeeze as it requires batch dimension
             # current anchor_s ~ 3*2 tensor, add dimensions to multiply freely
             anchors_s = torch.tensor(anchors[s]).reshape(3, 1, 1, 2)
-            tar_like[s] = raw_transform(tar_like[s].unsqueeze(0), anchors_s).squeeze(0)
+            new_tl = raw_transform(tar_like[s].unsqueeze(0), anchors_s).squeeze(0).detach()
+        else:
+            new_tl = tar_like[s].clone()
         # calculate absolute center xy and assign at 1,2 positions of last dim (here 1:3 is just a coincidence)
         new_tl[..., 1:3][present_s] = (ix + tar_like[s][..., 1:3][present_s]) / gs[s]  # order matters, slice then mask!
         # calculate absolute width and height, then assign
         new_tl[..., 3:5][present_s] = tar_like[s][..., 3:5][present_s] / gs[s]
-        # we don't need other dimensions anymore, reshape to (#found, 6) and save params, labels and scales for colours
-        boxes_s, labels_s = new_tl[present_s].reshape(-1, 6)[:, 1:5].tolist(), new_tl[present_s].reshape(-1, 6)[:,
-                                                                               5].tolist()
+        # save params, labels and scales for colours
+        boxes_s, labels_s = new_tl[present_s][:, 1:5].tolist(), new_tl[present_s][:, 5].tolist()
         boxes.append(boxes_s)
         labels.append(labels_s)
         scale_idx.append([s] * len(labels_s))  # denotes detection on different scales (by color or so)
@@ -122,21 +127,22 @@ def pick(element, gs, anchors, raw=False):
     tensor = torchvision.transforms.ConvertImageDtype(torch.uint8)(element[0])
     # extract labels, absolute bboxes (xywh)
     data = tl_to_bboxes(element[1], gs, anchors, raw=raw)
-    # data may contain nested lists (for each scale), detect and flatten them
-    # not 'raw', data[1][0] could either be 1st scale bb list/tuple or 1st label in list of labels (thus float)
-    bbxs, lls, sidx = map(lambda t: t if isinstance(data[1][0], float) else list(chain(*t)), data)
-    palette = ['#092327', '#0b5351', '#00a9a5']  # darkest colour first
+    # data may contain nested lists (for each scale, if raw), detect and flatten them
+    # data[1][0] could either be 1st scale label list or 1st label in list of labels
+    bbxs, lls, sidx = map(lambda t: t if not raw else list(chain(*t)), data)
+    palette = ['#0E21A0', '#4D2DB7', '#9D44C0', '#EC53B0']  # gt colour first
 
     def pixel_v(bbox):
         """transform bbox from absolute to relative: change representation, flatten and scale bbox to IMAGE_SIZE"""
         return list(map(lambda x: 416 * x, chain(*vertex_repr(bbox))))
 
     # transform box coordinates, get labels
-    bboxes, labels, colors = zip(*[(pixel_v(b), id_to_cname[int(l)], palette[i]) for b, l, i in zip(bbxs, lls, sidx)])
+    bboxes, labels, colors = zip(*[(pixel_v(b), id_to_cname[int(l)], palette[i + 1]) for b, l, i in zip(bbxs, lls, sidx)])
     tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor,
                                                            boxes=torch.tensor(bboxes),
                                                            labels=labels,
-                                                           colors=list(colors),  # doesn't accept tuples, bug to report
+                                                           colors=list(colors) if raw else palette[0],
+                                                           # colors arg doesn't accept tuples, bug to report
                                                            )
     return tensor_w_boxes
 
@@ -146,6 +152,26 @@ def sample(elements, size=9, **kwargs):
     sample_list = [pick(elements[i], **kwargs) for i in range(size)]
     show_img(torchvision.utils.make_grid(sample_list, nrow=np.sqrt(size).astype(int)))
 
+
+def batch_sample(batch, model, loss_fn=None, **kwargs):
+    """Visualize a batch of items from the dataset with all bounding boxes and figure labels,
+        implies that model and batch are both on a same device"""
+    imgs, tars = batch
+    bs = imgs.shape[0]
+    preds = model(imgs)
+
+    # draw image with target bboxes, then predictions (on top) for all elements of batch
+    sample_list = [pick((pick((imgs[i, ...], tuple(ts[i, ...] for ts in tars)), **kwargs),
+                         tuple(ps[i, ...] for ps in preds)), **kwargs, raw=True)
+                   for i in range(bs)]
+    # lay out list of processed images (tensors) with boxes
+    show_img(torchvision.utils.make_grid(sample_list, nrow=np.sqrt(bs).astype(int)))
+    if loss_fn:
+        loss_data = [(loss_fn(pred_s=preds[s], tar_s=tars[s], scale=s), loss_fn.get_state()) for s in range(3)]
+        loss, state = tuple(map(lambda tl: torch.sum(torch.stack(tl, dim=0), dim=0), zip(*loss_data)))
+    plt.figure(figsize=(20, 20))
+    plt.title(f'Detections on a batch of {bs} images' +
+              f' with loss {tuple(map(lambda x:round(x, 2), state.tolist()))}' if loss_fn else '')
 
 class KIoU(KMeans):
     """custom override using IoU instead of Euclidean distance as a metric"""

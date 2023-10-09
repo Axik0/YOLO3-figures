@@ -157,7 +157,7 @@ class YOLOLoss(nn.Module):
 
         # has object loss: let object presence probability = iou_score, learns to predict not just 1 but own iou with gt
         # take the ones with object and compare with target bbox by iou
-        ious = iou_pairwise(pred_st[..., 1:5][yobj], tar_s[..., 1:5][yobj]).detach()  # yet unsure about this detachment
+        ious = iou_pairwise(pred_st[..., 1:5][yobj], tar_s[..., 1:5][yobj])#.detach()  # yet unsure about this detachment
         self.yo_loss = self.bce(pred_st[..., 0:1][yobj], ious * tar_s[..., 0:1][yobj])
 
         # bounding box loss: let's transform (part of) target to predictions, this trick allows better gradient flow,
