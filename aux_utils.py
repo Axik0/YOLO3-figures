@@ -155,7 +155,7 @@ def sample(elements, size=9, **kwargs):
 
 def batch_sample(batch, model, loss_fn=None, **kwargs):
     """Visualize a batch of items from the dataset with all bounding boxes and figure labels,
-        implies that model and batch are both on a same device"""
+        implies that provided model and batch are both on a same device"""
     imgs, tars = batch
     bs = imgs.shape[0]
     preds = model(imgs)
@@ -165,13 +165,14 @@ def batch_sample(batch, model, loss_fn=None, **kwargs):
                          tuple(ps[i, ...] for ps in preds)), **kwargs, raw=True)
                    for i in range(bs)]
     # lay out list of processed images (tensors) with boxes
+    plt.figure(figsize=(20, 20))
     show_img(torchvision.utils.make_grid(sample_list, nrow=np.sqrt(bs).astype(int)))
     if loss_fn:
         loss_data = [(loss_fn(pred_s=preds[s], tar_s=tars[s], scale=s), loss_fn.get_state()) for s in range(3)]
         loss, state = tuple(map(lambda tl: torch.sum(torch.stack(tl, dim=0), dim=0), zip(*loss_data)))
-    plt.figure(figsize=(20, 20))
     plt.title(f'Detections on a batch of {bs} images' +
               f' with loss {tuple(map(lambda x:round(x, 2), state.tolist()))}' if loss_fn else '')
+
 
 class KIoU(KMeans):
     """custom override using IoU instead of Euclidean distance as a metric"""
