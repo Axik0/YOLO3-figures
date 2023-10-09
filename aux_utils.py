@@ -6,7 +6,9 @@ import torch
 import torchvision
 
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import seaborn as sns
+
 from generation import id_to_cname, EPS, get_boxes
 from itertools import chain
 
@@ -17,6 +19,7 @@ def show_img(tensor_chw, slim=True):
     """returns AxesImage object, i.e. an image attached to both axes
         plt.show() is unnecessary for inline jupyter notebook backend,
         slim option allows to get rid of axes and plot just the image"""
+    mpl.rc_file_defaults()  # seaborn changes style, revert to prevent its impact on the other charts
     tensor_hwc = tensor_chw.permute(1, 2, 0)
     imax_object = plt.imshow(tensor_hwc)
     if slim:
@@ -147,31 +150,33 @@ def pick(element, gs, anchors, raw=False):
     return tensor_w_boxes
 
 
-def sample(elements, size=9, **kwargs):
+def sample(elements, size=9, **pick_kwargs):
     """Visualize a bunch of items from the dataset with all bounding boxes and figure labels"""
-    sample_list = [pick(elements[i], **kwargs) for i in range(size)]
+    sample_list = [pick(elements[i], **pick_kwargs) for i in range(size)]
     show_img(torchvision.utils.make_grid(sample_list, nrow=np.sqrt(size).astype(int)))
 
 
-def batch_sample(batch, model, loss_fn=None, **kwargs):
-    """Visualize a batch of items from the dataset with all bounding boxes and figure labels,
-        implies that provided model and batch are both on a same device"""
+def batch_sample(batch, model, loss_fn=None, size=10, **pick_kwargs):
+    """visualizes a batch of items from the dataset with all bounding boxes and figure labels, optional loss calculation
+        implies that provided model and batch are both on a same device
+        size translates to matplotlib figure size"""
     imgs, tars = batch
     bs = imgs.shape[0]
     preds = model(imgs)
 
     # draw image with target bboxes, then predictions (on top) for all elements of batch
-    sample_list = [pick((pick((imgs[i, ...], tuple(ts[i, ...] for ts in tars)), **kwargs),
-                         tuple(ps[i, ...] for ps in preds)), **kwargs, raw=True)
+    sample_list = [pick((pick((imgs[i, ...], tuple(ts[i, ...] for ts in tars)), **pick_kwargs),
+                         tuple(ps[i, ...] for ps in preds)), raw=True, **pick_kwargs)
                    for i in range(bs)]
     # lay out list of processed images (tensors) with boxes
-    plt.figure(figsize=(20, 20))
+    plt.figure(figsize=(size, size))
     show_img(torchvision.utils.make_grid(sample_list, nrow=np.sqrt(bs).astype(int)))
+    loss_info_str = ''
     if loss_fn:
         loss_data = [(loss_fn(pred_s=preds[s], tar_s=tars[s], scale=s), loss_fn.get_state()) for s in range(3)]
         loss, state = tuple(map(lambda tl: torch.sum(torch.stack(tl, dim=0), dim=0), zip(*loss_data)))
-    plt.title(f'Detections on a batch of {bs} images' +
-              f' with loss {tuple(map(lambda x:round(x, 2), state.tolist()))}' if loss_fn else '')
+        loss_info_str = f' with loss {tuple(map(lambda x: round(x, 2), state.tolist()))}'
+    plt.title(f'Detections on a batch of {bs} images' + loss_info_str)
 
 
 class KIoU(KMeans):
@@ -209,7 +214,7 @@ def get_anchors(a_quantity, plot=True):
         plt.title(f'IoU K-means among all bounding boxes')
         plt.xlabel('Width/im_size')
         plt.ylabel('Height/im_size')
-        plt.show()
+        # plt.show()
 
     # same treatment doesn't change original anchors, that's why
     c_sorting_indices = np.apply_along_axis(lambda wh: wh[0] + wh[1], axis=1, arr=centroids).argsort()  # sort by key
