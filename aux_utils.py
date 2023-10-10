@@ -79,10 +79,11 @@ def raw_transform(raw_net_out_s, anchors_s, partial=False):
     """this function is intended to be applied scalewise, partial=True limits this transformation to 1:3 ix;
     according to yolo design, this transforms (batched) raw NN output (just 4 coords) to the desired (target) format"""
     # anchors = anchors_s.reshape(1, 3, 1, 1, 2)  # current anchor ~ 3*2 tensor, add dimensions to multiply freely
-    raw_net_out_s[..., 1:3] = torch.sigmoid(raw_net_out_s[..., 1:3])
+    res = raw_net_out_s.clone()     # otherwise mutates input tensors outer scope
+    res[..., 1:3] = torch.sigmoid(raw_net_out_s[..., 1:3])
     if not partial:
-        raw_net_out_s[..., 3:5] = torch.exp(raw_net_out_s[..., 3:5]) * anchors_s
-    return raw_net_out_s
+        res[..., 3:5] = torch.exp(raw_net_out_s[..., 3:5]) * anchors_s
+    return res
 
 
 def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
@@ -162,21 +163,24 @@ def batch_sample(batch, model, loss_fn=None, size=10, **pick_kwargs):
         size translates to matplotlib figure size"""
     imgs, tars = batch
     bs = imgs.shape[0]
-    preds = model(imgs)
+    model.eval()
+    with torch.inference_mode():
+        preds = model(imgs)
 
-    # draw image with target bboxes, then predictions (on top) for all elements of batch
-    sample_list = [pick((pick((imgs[i, ...], tuple(ts[i, ...] for ts in tars)), **pick_kwargs),
-                         tuple(ps[i, ...] for ps in preds)), raw=True, **pick_kwargs)
-                   for i in range(bs)]
-    # lay out list of processed images (tensors) with boxes
-    plt.figure(figsize=(size, size))
-    show_img(torchvision.utils.make_grid(sample_list, nrow=np.sqrt(bs).astype(int)))
-    loss_info_str = ''
-    if loss_fn:
-        loss_data = [(loss_fn(pred_s=preds[s], tar_s=tars[s], scale=s), loss_fn.get_state()) for s in range(3)]
-        loss, state = tuple(map(lambda tl: torch.sum(torch.stack(tl, dim=0), dim=0), zip(*loss_data)))
-        loss_info_str = f' with loss {tuple(map(lambda x: round(x, 2), state.tolist()))}'
-    plt.title(f'Detections on a batch of {bs} images' + loss_info_str)
+        # draw image with target bboxes, then predictions (on top) for all elements of batch
+        sample_list = [pick((pick((imgs[i, ...], tuple(ts[i, ...] for ts in tars)), **pick_kwargs),
+                             tuple(ps[i, ...] for ps in preds)), raw=True, **pick_kwargs)
+                       for i in range(bs)]
+        # lay out list of processed images (tensors) with boxes
+        plt.figure(figsize=(size, size))
+        show_img(torchvision.utils.make_grid(sample_list, nrow=np.sqrt(bs).astype(int)))
+        if loss_fn:
+            loss_data = [(loss_fn(pred_s=preds[s], tar_s=tars[s], scale=s), loss_fn.get_state()) for s in range(3)]
+            loss, state = tuple(map(lambda tl: torch.sum(torch.stack(tl, dim=0), dim=0), zip(*loss_data)))
+            loss_info_str = f' with loss {tuple(map(lambda x: round(x, 2), state.tolist()))}'
+        else:
+            loss_info_str = ''
+        plt.title(f'Detections on a batch of {bs} images' + loss_info_str)
 
 
 class KIoU(KMeans):

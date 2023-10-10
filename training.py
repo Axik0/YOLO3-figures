@@ -53,7 +53,7 @@ def load_ch(model, optimizer, path=os.path.join(CFP, CH_NAME)):
         print(f'no checkpoint there {path}')
 
 
-def run(model, dataloader, loss_fn, amp_scaler, optimizer=None, device=DEVICE, agg=True):
+def run(model, dataloader, loss_fn, amp_scaler=None, optimizer=None, device=DEVICE, agg=True):
     """universal (forward + optional backward) pass, requires tqdm-wrapped dataloader
     loss component mean aggregation (over batch dimension) is set up as a default output,
     """
@@ -89,7 +89,7 @@ def run(model, dataloader, loss_fn, amp_scaler, optimizer=None, device=DEVICE, a
 
 
 def train(model, dataloader_train, loss_fn, optimizer, n_epochs,
-          amp_scaler=None, device=DEVICE, dataloader_test=None, ep=2, load=False, palette=PALETTE):
+          amp_scaler, device=DEVICE, dataloader_test=None, ep=2, load=False, palette=PALETTE):
     """Model training procedure w/ possible evaluation (if test data is provided) and autosave/autoload
         ep -- model evaluation period, any integer >= 0,
         amp_scaler should be an instance of torch.cuda.amp.GradScaler for automated mixed precision training on GPU"""
