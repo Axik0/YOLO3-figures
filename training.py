@@ -43,10 +43,9 @@ def save_ch(model, optimizer, curr_loss, curr_epoch, folder_path=CFP, name=CH_NA
 
 
 def logger(writer, curr_epoch, train_loss_state, test_loss_state=None):
-    """dumps train (and test as option) loss states to file,
+    """dumps train (and test as option) loss states to file that could be viewed via TensorBoard,
         writer should be an instance of tensorboard's SummaryWriter
         """
-
     curr_train_log = {LOSS_PARTS[i]: train_loss_state[i] for i in range(len(train_loss_state))}
     writer.add_scalars(main_tag='train_loss', tag_scalar_dict=curr_train_log, global_step=curr_epoch)
     if test_loss_state:
