@@ -75,7 +75,7 @@ def iou_pairwise(tensor_1, tensor_2):
     aou = area_1 + area_2 - aoi
     aou[area_1 + area_2 == 0] = EPS  # just in case, not to get zero-division
     iou = aoi / aou
-    # iou here is [K, L, Y, 1]-shaped matrix (judging by first 2 dimensions),
+    # iou here is [K, L, Y, 1]-shaped (matrix, judging by first 2 dimensions),
     # we have to return its diagonal for square case (L=K) which is [Y, 1, K] --> [K, Y, 1]
     return iou if matrix_out else iou.diagonal().permute(-1, *range(iou.ndim - 1)[:-1])
 

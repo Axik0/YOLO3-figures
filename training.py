@@ -7,10 +7,13 @@ from generation import PATH, AMOUNT
 
 import torch
 from tqdm.notebook import tqdm, tnrange  # otherwise it keeps adding new lines at each iteration
+from torch.utils.tensorboard import SummaryWriter
+from modules import LOSS_PARTS
 
 
 CFP = os.path.join(PATH, 'checkpoints')
 CH_NAME = 'last_state.pt'
+LG_NAME = 'last_state.pt'
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 PALETTE = ("#eca0ff", "#aab2ff", "#84ffc9")  # custom tqdm colour palette
@@ -37,6 +40,20 @@ def save_ch(model, optimizer, curr_loss, curr_epoch, folder_path=CFP, name=CH_NA
     finally:
         torch.save(obj=checkpoint, f=os.path.join(folder_path, name))
         return True
+
+
+def logger(writer, curr_epoch, train_loss_state, test_loss_state=None):
+    """dumps train (and test as option) loss states to file,
+        writer should be an instance of tensorboard's SummaryWriter
+        """
+
+    curr_train_log = {LOSS_PARTS[i]: train_loss_state[i] for i in range(len(train_loss_state))}
+    writer.add_scalars(main_tag='train_loss', tag_scalar_dict=curr_train_log, global_step=curr_epoch)
+    if test_loss_state:
+        curr_test_log = {LOSS_PARTS[i]: test_loss_state[i] for i in range(len(test_loss_state))}
+        writer.add_scalars(main_tag='test_loss', tag_scalar_dict=curr_test_log, global_step=curr_epoch)
+    writer.close()
+    return True
 
 
 def load_ch(model, optimizer, path=os.path.join(CFP, CH_NAME)):
@@ -96,6 +113,8 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs,
     loaded_epoch = load_ch(model, optimizer) if load else 0     # inplace last state loader
     assert loaded_epoch < n_epochs, f'Set number of epochs larger than loaded, {loaded_epoch}'
 
+    tb_writer = SummaryWriter(CFP)
+
     model = model.to(device=device)
     loss_fn = loss_fn.to(device=device)    # as it's stateful, has built-in hyperparameters (weighing parts of loss)
 
@@ -112,6 +131,8 @@ def train(model, dataloader_train, loss_fn, optimizer, n_epochs,
             avg_test_loss = torch.sum(avg_test_loss_dist).item()
             ceu_str = (f'test loss {avg_test_loss:.2f}',
                        f', distributed as {tuple(map(lambda x:round(x, 2), avg_test_loss_dist.tolist()))}')
+            # TensorBoard logging to file
+            logger(tb_writer, e, avg_train_loss_dist.tolist(), avg_test_loss_dist.tolist())
         else:
             ceu_str = (f'train loss {avg_train_loss:.2f}',
                        f', distributed as {tuple(map(lambda x:round(x, 2), avg_train_loss_dist.tolist()))}')

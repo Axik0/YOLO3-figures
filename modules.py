@@ -34,6 +34,7 @@ ANCHORS = (
 
 DEFAULT_TR = [A.Resize(YOLO_SIZE, YOLO_SIZE), ToTensorV2()]
 
+LOSS_PARTS = ('absence', 'presence', 'bbox', 'class')
 
 # no augmentations, just resized 256 --> 416, cast to torch.float tensors...(NB! order matters)
 
@@ -142,6 +143,8 @@ class YOLOLoss(nn.Module):
         self.la_prs = l_prs
         self.la_box = l_box  # 10 originally
         self.la_cls = l_cls
+
+        self.id_to_parts = LOSS_PARTS
 
         self.combo_loss = torch.tensor(0.)
 
