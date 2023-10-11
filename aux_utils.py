@@ -34,6 +34,11 @@ def vertex_repr(bbox):
     return vertex_min, vertex_max
 
 
+def pixel_v(bbox):
+    """transform bbox from absolute to relative: change representation, flatten and scale bbox to IMAGE_SIZE"""
+    return list(map(lambda x: 416 * x, chain(*vertex_repr(bbox))))
+
+
 def iou_pairwise(tensor_1, tensor_2):
     """vectorized pairwise iou computation, capable of processing inputs with 1-st dim (batch) mismatch:
     # tensor_1 = K, Y, 4 --> new axis --> K, 1, Y, 4 --> broadcast 1 to L cols --> K, L, Y, 4
@@ -102,7 +107,8 @@ def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
     boxes, labels, scale_idx = [], [], []  # combine all information into 3 lists, bbox~(4-bbox, 1-label_id, 1-scale_id)
     for s in range(tl_length):
         # create presence mask (indices)
-        present_s = tar_like[s][..., 0] > 0.75
+        present_s = tar_like[s][..., 0] > 0
+        # print(present_s.nonzero())
         # convert 4 local (relative to cell shiftx, shifty, width, height) to absolute for all ai, cx, cy
         ix = torch.nonzero(present_s)[:, 1:3].float()  # 2D tensor #nonzero*(N-1) with values=indices, extract (cx, cy)
         # !this one should be cast to float manually because it's integer and going to be assigned to float!
@@ -110,7 +116,7 @@ def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
         if raw:  # transform raw net outs to target first, unsqueeze-squeeze as it requires batch dimension
             # current anchor_s ~ 3*2 tensor, add dimensions to multiply freely
             anchors_s = torch.tensor(anchors[s]).reshape(3, 1, 1, 2)
-            new_tl = raw_transform(tar_like[s].unsqueeze(0), anchors_s).squeeze(0).detach()
+            new_tl = raw_transform(tar_like[s].detach().unsqueeze(0), anchors_s).squeeze(0)
         else:
             new_tl = tar_like[s].clone()
         # calculate absolute center xy and assign at 1,2 positions of last dim (here 1:3 is just a coincidence)
@@ -127,28 +133,27 @@ def tl_to_bboxes(tar_like: list, gs, anchors, raw=False):
 
 def pick(element, gs, anchors, raw=False):
     """Visualize an element from the dataset with all bounding boxes and figure labels"""
-    # we have floats but still need uint8 for this visualization to work
-    tensor = torchvision.transforms.ConvertImageDtype(torch.uint8)(element[0])
     # extract labels, absolute bboxes (xywh)
     data = tl_to_bboxes(element[1], gs, anchors, raw=raw)
     # data may contain nested lists (for each scale, if raw), detect and flatten them
     # data[1][0] could either be 1st scale label list or 1st label in list of labels
     bbxs, lls, sidx = map(lambda t: t if not raw else list(chain(*t)), data)
     palette = ['#0E21A0', '#4D2DB7', '#9D44C0', '#EC53B0']  # gt colour first
-
-    def pixel_v(bbox):
-        """transform bbox from absolute to relative: change representation, flatten and scale bbox to IMAGE_SIZE"""
-        return list(map(lambda x: 416 * x, chain(*vertex_repr(bbox))))
-
-    # transform box coordinates, get labels
-    bboxes, labels, colors = zip(*[(pixel_v(b), id_to_cname[int(l)], palette[i + 1]) for b, l, i in zip(bbxs, lls, sidx)])
-    tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor,
-                                                           boxes=torch.tensor(bboxes),
-                                                           labels=labels,
-                                                           colors=list(colors) if raw else palette[0],
-                                                           # colors arg doesn't accept tuples, bug to report
-                                                           )
-    return tensor_w_boxes
+    # sometimes there might be empty list of boxes (no detections)
+    if len(bbxs) > 0:
+        # we have floats but still need uint8 for this visualization to work
+        tensor = torchvision.transforms.ConvertImageDtype(torch.uint8)(element[0])
+        # transform box coordinates, get labels
+        bboxes, labels, colors = zip(*[(pixel_v(b), id_to_cname[int(l)], palette[i + 1]) for b, l, i in zip(bbxs, lls, sidx)])
+        tensor_w_boxes = torchvision.utils.draw_bounding_boxes(image=tensor,
+                                                               boxes=torch.tensor(bboxes),
+                                                               labels=labels,
+                                                               colors=list(colors) if raw else palette[0],
+                                                               # colors arg doesn't accept tuples, bug to report
+                                                               )
+        return tensor_w_boxes
+    else:
+        return element[0]
 
 
 def sample(elements, size=9, **pick_kwargs):
