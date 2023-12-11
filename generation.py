@@ -209,21 +209,23 @@ class BBox(Figure):
 
 
 class Triangle(Figure):
-    def __init__(self, center, half_size, std_threshold=0.7):
+    def __init__(self, center, half_size, thr=0.2):
         super().__init__(center, half_size)
         self.shape = self.__class__.__name__
         half_size = list(map(round, half_size))
         self.bbox_ = BBox(center, half_size)
         shift_x = list(range(-half_size[0] + 2 * MARGIN, half_size[0] - 2 * MARGIN))
         shift_y = list(range(-half_size[1] + 2 * MARGIN, half_size[1] - 2 * MARGIN))
-        random.shuffle(shift_x)
-        random.shuffle(shift_y)
         # prevent slim triangles as it's hard to distinguish those
-        std_x, std_y = 0, 0
-        while std_x < std_threshold * half_size[0] or std_y < std_threshold * half_size[1]:
+        x_ratio, y_ratio = 0, 0
+        while abs(x_ratio - y_ratio) < thr or not ((thr <= x_ratio <= 1 - thr) and (thr <= y_ratio <= 1 - thr)):
             random.shuffle(shift_x)
             random.shuffle(shift_y)
-            std_x, std_y = statistics.stdev(shift_x[:3]), statistics.stdev(shift_y[:3])
+            x_, y_ = sorted(shift_x[:3]), sorted(shift_y[:3])
+            x_diff, y_diff = list(map(lambda ex: ex - x_[0], x_)), list(map(lambda ey: ey - y_[0], y_))
+            x_ratio, y_ratio = x_diff[1] / x_diff[2], y_diff[1] / y_diff[2]
+            # print(x_ratio - y_ratio, abs(x_ratio - y_ratio) < thr)
+            # print(x_ratio, y_ratio, not ((thr <= x_ratio <= 1 - thr) and (thr <= y_ratio <= 1 - thr)))
         x, y = [self.x + sx for sx in shift_x[:3]], [self.y + sy for sy in shift_y[:3]]
         self.ve = list(zip(x, y))
         ve_min = min(x), min(y)
@@ -261,7 +263,6 @@ class Rhombus(Figure):
         dy = self.bbox.ve_max[1] - self.bbox.ve_min[1]
         # let's find an orthogonal line, i.e. w/ normal (dx,dy) and ic
         line = (dx, dy, -(dx * self.x + dy * self.y))
-
         def cross(nni, xs):
             # n1*x+n2*y+intercept=0 for all xs --> ys
             assert nni[1] != 0, 'wrong line, dna zerodiv'
@@ -425,17 +426,19 @@ def draw_shapes(bboxes_list, mute=False):
             # rotate to an angle
             angle_ch = random.randrange(0, 45)
             extra_adjustments = {'ratio': ratio_ch, 'angle': angle_ch}
-        # set up an instance
-        obj = class_ch(*b, **extra_adjustments)
-        obj.draw(canvas, colour_ch)
-
-        size = (round(min(obj.bbox.wh)), round(max(obj.bbox.wh)))
-        sizes.append(size)
+        n_trials = 0
+        size, obj = (0, 0), None
         # check sizes
-        if size[0] < 25 or size[1] > 150:
-            raise ValueError(f'Figure {obj} exceeds (25...150) limits {size}')
-        else:
-            figures.append(obj)
+        while (size[0] < 25 or size[1] > 150) and n_trials < 10:
+            # raise ValueError(f'Figure {obj} exceeds (25...150) limits {size}')
+            obj = class_ch(*b, **extra_adjustments)
+            size = (round(min(obj.bbox.wh)), round(max(obj.bbox.wh)))
+            n_trials += 1
+            if n_trials > 5:
+                print(f'retried {n_trials - 1}')
+        obj.draw(canvas, colour_ch)
+        sizes.append(size)
+        figures.append(obj)
     if not mute:
         print(f'Image contains: {len(figures)} figure(s): {[f.__class__.__name__ for f in figures]}')
     return image, figures
@@ -467,21 +470,19 @@ def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
     json_path = os.path.join(root, data_name)
 
     for i in range(n):
+        if i % 200 == 0:
+            print(i)
         # allocate Ox, Oy projections of possible rectangles
         x, y = get_centers(mute=True), get_centers(mute=True)
         # generate product of all xs, ys (all possible combinations without replacement)
         centers_xy, half_sizes_wh = list(product(x[0], y[0])), list(product(x[1], y[1]))
         choice = rc_parts(centers_xy, half_sizes_wh)
         # print(f'{len(centers_xy)} rectangles (and their shapes) in total, chosen {len(choice)}')
-        try:
-            result = draw_shapes(choice, mute=True)
-        except ValueError:
-            print('one missed, retried(once)')
-            result = draw_shapes(choice)
+        result = draw_shapes(choice, mute=True)
         # result[0].show()
         img_to_show.append(result[0])
         # store picture
-        local_img_path = os.path.join(folder_name, f'{i}.png')
+        img_name = f'{i}.png'
         if store:
             abs_folder_path = os.path.join(root, folder_name)
             try:
@@ -489,12 +490,10 @@ def generate(n, root=PATH, folder_name=FNAME, data_name=DNAME, store=True):
             except FileExistsError:
                 pass
             finally:
-                result[0].save(fp=os.path.join(root, local_img_path))
+                result[0].save(fp=os.path.join(root, folder_name, img_name))
         # create descr ~ (img_path:[[fig1_type, bbox1_center, bbox1_wh], [fig2_type, bbox2_center, bbox2_wh], ...)
         description = list((f.shape, (f.bbox.x, f.bbox.y), f.bbox.wh) for f in result[1])
-        data[local_img_path] = description
-        if i % 200 == 0:
-            print(i)
+        data[img_name] = description
     # store its description
     if store:
         with open(json_path, 'w') as f:
@@ -511,12 +510,12 @@ def get_boxes(root=PATH, data_name=DNAME):
     return [tuple(map(lambda c: c / SIZE, f[2])) for d in data.values() for f in d]
 
 
-def load_dataset(transforms, part_slice, root=PATH, data_name=DNAME, stats=True):
+def load_dataset(transforms, part_slice, root=PATH, img_folder_name=FNAME, data_name=DNAME, stats=True):
     """requires at least ToTensorV2 transformation, outputs 3 lists - images, bounding boxes, figure indices
     , applying those transformations is memory inefficient, can't be solved with 8Gb RAM only"""
     data = get_data(json_object_path=os.path.join(root, data_name))
     # despite dict is an ordered dict (I won't get random subset for train/test), I don't want to load any extra data
-    loaded = [(load_image(os.path.join(root, lp)), data[lp]) for lp in tuple(data.keys())[part_slice]]
+    loaded = [(load_image(os.path.join(root, img_folder_name, lp)), data[lp]) for lp in tuple(data.keys())[part_slice]]
     images, bboxes, labels = [], [], []
     mean_rgb_, std_rgb_ = np.zeros(3), np.zeros(3)
     for image, desc in loaded:
@@ -578,7 +577,7 @@ if __name__ == '__main__':
     # print(box1.get_iou(box2))
     # print(box1+box2)
 
-    # print(Triangle((100, 100), (50, 50)))
+    print(Triangle((100, 100), (50, 50)))
     # print(Rhombus((100, 100), (20, 70)))
     # print(Polygon((100, 100), (50, 50), ratio=0.7, nv=6, angle=44))
     # print(Circle((100, 100), (30, 50), ratio=0.7))
@@ -598,5 +597,5 @@ if __name__ == '__main__':
     # result = draw_shapes(choice)
     # result[0].show()
 
-    d = generate(n=1000, root=PATH, folder_name=FNAME, data_name=DNAME, store=False)
-    tile(d, 1000).show()
+    # d = generate(n=100, root=PATH, folder_name=FNAME, data_name=DNAME, store=True)
+    # tile(d, 100).show()
